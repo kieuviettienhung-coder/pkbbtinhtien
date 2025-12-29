@@ -1,0 +1,2296 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PKBB">
+    <meta name="format-detection" content="telephone=no">
+    <title>Phòng Khám Bách Bảo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        /* iOS Specific Optimizations */
+        * {
+            -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            -webkit-touch-callout: none;
+        }
+        
+        body {
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        /* Prevent zoom on input focus */
+        input, select, textarea, button {
+            font-size: 16px !important;
+            min-height: 44px;
+        }
+        
+        /* Smooth scrolling for iOS */
+        .overflow-y-auto, .overflow-x-auto {
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        /* Fix date picker on iOS */
+        input[type="date"] {
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        
+        /* Better touch targets */
+        button {
+            min-height: 44px;
+            min-width: 44px;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCzMwOcNCcEuFVFHjqMEmrlMQs7DG-z-QI",
+            authDomain: "phongkhambachbao-a47bc.firebaseapp.com",
+            databaseURL: "https://phongkhambachbao-a47bc-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "phongkhambachbao-a47bc",
+            storageBucket: "phongkhambachbao-a47bc.firebasestorage.app",
+            messagingSenderId: "484295663180",
+            appId: "1:484295663180:web:29583f475b3b9fe2c7dee9"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.database();
+
+        // ===== REMOTE KILL SWITCH =====
+        // Kiểm tra app có được phép chạy không (chỉ áp dụng cho file CŨ)
+        const CURRENT_APP_VERSION = '2.0.0'; // Version của file này
+        db.ref('settings/appEnabled').once('value', (snapshot) => {
+            const isEnabled = snapshot.val();
+            
+            // Hàm so sánh version
+            const compareVersions = (v1, v2) => {
+                const parts1 = v1.split('.').map(Number);
+                const parts2 = v2.split('.').map(Number);
+                for (let i = 0; i < 3; i++) {
+                    if (parts1[i] > parts2[i]) return 1;
+                    if (parts1[i] < parts2[i]) return -1;
+                }
+                return 0;
+            };
+            
+            if (isEnabled === false) {
+                // App bị khóa - NHƯNG cho phép file v2.0.0+
+                if (compareVersions(CURRENT_APP_VERSION, '2.0.0') >= 0) {
+                    // File mới v2.0.0+ → Cho phép vào
+                    console.log('✅ File mới v' + CURRENT_APP_VERSION + ' - Không bị khóa');
+                } else {
+                    // File cũ < v2.0.0 → Bị khóa
+                    document.body.innerHTML = `
+                        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <div style="background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 500px; text-align: center;">
+                                <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
+                                <h1 style="color: #e53e3e; font-size: 32px; margin-bottom: 10px;">Phiên bản cũ đã bị khóa</h1>
+                                <p style="color: #4a5568; font-size: 18px; margin-bottom: 30px;">Vui lòng cập nhật lên phiên bản mới nhất</p>
+                                <div style="background: #fff5f5; border: 2px solid #feb2b2; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
+                                    <p style="color: #742a2a; font-size: 14px; margin: 0;">
+                                        <strong>📞 Liên hệ Admin</strong><br/>
+                                        để lấy file phiên bản mới
+                                    </p>
+                                </div>
+                                <p style="color: #718096; font-size: 12px;">Phòng Khám Bách Bảo © 2025</p>
+                            </div>
+                        </div>
+                    `;
+                    throw new Error('Old app version locked by admin');
+                }
+            } else if (isEnabled === null) {
+                // Lần đầu chạy, tự động set = true
+                db.ref('settings/appEnabled').set(true);
+            }
+        });
+
+        // Default price levels
+        const DEFAULT_PRICE_LEVELS = [0, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 260, 280, 300, 320];
+
+        function App() {
+            // ===== VERSION CONTROL =====
+            const APP_VERSION = '2.0.0'; // Tăng số này khi có bản mới
+            const [versionBlocked, setVersionBlocked] = useState(false);
+            const [requiredVersion, setRequiredVersion] = useState('');
+            
+            const [user, setUser] = useState(null);
+            const [userRole, setUserRole] = useState(null); // 'admin' or 'staff'
+            const [allowedBranch, setAllowedBranch] = useState(null); // 'nga-bay', 'thot-not', or 'all'
+            const [currentView, setCurrentView] = useState('input');
+            const [selectedBranch, setSelectedBranch] = useState('nga-bay');
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+            const [dailyData, setDailyData] = useState({
+                examinations: {},
+                expenses: [],
+                doctorFees: [],
+                medicines: []
+            });
+            const [monthlyData, setMonthlyData] = useState({});
+            const [monthlyMedicines, setMonthlyMedicines] = useState({});
+            const [yearlyData, setYearlyData] = useState({});
+            const [customPrices, setCustomPrices] = useState([]);
+            const [showLogin, setShowLogin] = useState(true);
+            const [adminPassword, setAdminPassword] = useState('123456');
+            const [ngaBayPassword, setNgaBayPassword] = useState('ngabay123');
+            const [thotNotPassword, setThotNotPassword] = useState('thotnot123');
+            const [medicineList, setMedicineList] = useState([
+                { name: 'adkold new', price: 30 },
+                { name: 'air x cam', price: 50 },
+                { name: 'albendazol 400mg', price: 30 },
+                { name: 'augmentin 1g', price: 240 },
+                { name: 'augmentin 500mg', price: 200 },
+                { name: 'augxicine 500mg', price: 180 },
+                { name: 'betamethasone', price: 70 },
+                { name: 'cefixim 100mg', price: 150 },
+                { name: 'cefpodoxim 100mg', price: 160 },
+                { name: 'claminat 500mg', price: 190 },
+                { name: 'curam 1g', price: 250 },
+                { name: 'd3 mk7', price: 85 },
+                { name: 'desloratadin 5mg', price: 50 },
+                { name: 'dexipharm 5mg', price: 15 },
+                { name: 'dibencozide', price: 40 },
+                { name: 'domperidon 5mg', price: 20 },
+                { name: 'dorogyne f', price: 120 },
+                { name: 'dr nasal kids', price: 55 },
+                { name: 'enokast 4mg', price: 110 },
+                { name: 'esomeprazol 20mg', price: 80 },
+                { name: 'farzincol', price: 50 },
+                { name: 'fendexi', price: 45 },
+                { name: 'fendexi forte', price: 55 },
+                { name: 'ferumpro', price: 80 },
+                { name: 'germany ăn ngon', price: 75 },
+                { name: 'hidrasec', price: 95 },
+                { name: 'ho propa', price: 25 },
+                { name: 'ibu chai', price: 35 },
+                { name: 'ibu siro', price: 40 },
+                { name: 'jolli gold', price: 70 },
+                { name: 'katrypsin', price: 80 },
+                { name: 'konimag', price: 65 },
+                { name: 'mask phun', price: 20 },
+                { name: 'menpeptine', price: 45 },
+                { name: 'metpredni 16mg', price: 60 },
+                { name: 'mg b6', price: 35 },
+                { name: 'natri clorid 0.9%', price: 15 },
+                { name: 'paracetamol 500mg', price: 10 },
+                { name: 'peg 3350', price: 95 },
+                { name: 'pharlac vital', price: 90 },
+                { name: 'povidine 10%', price: 60 },
+                { name: 'prosbee vàng', price: 100 },
+                { name: 'sachaces', price: 75 },
+                { name: 'saccha vital', price: 85 },
+                { name: 'salbutamol', price: 40 },
+                { name: 'simguline 5mg', price: 90 },
+                { name: 'sterimux baby', price: 45 },
+                { name: 'terpin mekong', price: 25 },
+                { name: 'zaromax 100mg', price: 120 },
+                { name: 'zaromax 200mg', price: 180 }
+            ]);
+
+            // Load passwords from Firebase on mount
+            useEffect(() => {
+                // Kiểm tra và tự động set minVersion nếu chưa có
+                db.ref('settings_v2/minVersion').once('value', (snapshot) => {
+                    if (!snapshot.exists()) {
+                        // Chưa có minVersion → Tự động set = APP_VERSION
+                        db.ref('settings_v2/minVersion').set(APP_VERSION);
+                        console.log('✅ Đã tự động set minVersion =', APP_VERSION);
+                    } else {
+                        // Đã có minVersion → Kiểm tra
+                        const minVersion = snapshot.val();
+                        if (compareVersions(APP_VERSION, minVersion) < 0) {
+                            setVersionBlocked(true);
+                            setRequiredVersion(minVersion);
+                            return;
+                        }
+                    }
+                });
+
+                db.ref('settings_v2/adminPassword').once('value', (snapshot) => {
+                    if (snapshot.val()) {
+                        setAdminPassword(snapshot.val());
+                    }
+                });
+                db.ref('settings_v2/ngaBayPassword').once('value', (snapshot) => {
+                    if (snapshot.val()) {
+                        setNgaBayPassword(snapshot.val());
+                    }
+                });
+                db.ref('settings_v2/thotNotPassword').once('value', (snapshot) => {
+                    if (snapshot.val()) {
+                        setThotNotPassword(snapshot.val());
+                    }
+                });
+                db.ref('settings_v2/medicineList').once('value', (snapshot) => {
+                    if (snapshot.val()) {
+                        setMedicineList(snapshot.val());
+                    }
+                });
+            }, []);
+
+            // Function to compare versions (returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2)
+            const compareVersions = (v1, v2) => {
+                const parts1 = v1.split('.').map(Number);
+                const parts2 = v2.split('.').map(Number);
+                for (let i = 0; i < 3; i++) {
+                    if (parts1[i] > parts2[i]) return 1;
+                    if (parts1[i] < parts2[i]) return -1;
+                }
+                return 0;
+            };
+
+            const changePassword = async () => {
+                let passwordType = 'admin';
+                let currentPassword = adminPassword;
+                let dbPath = 'settings_v2/adminPassword';
+                let setPasswordFunc = setAdminPassword;
+                
+                if (userRole === 'staff') {
+                    if (allowedBranch === 'nga-bay') {
+                        passwordType = 'Ngã Bảy';
+                        currentPassword = ngaBayPassword;
+                        dbPath = 'settings_v2/ngaBayPassword';
+                        setPasswordFunc = setNgaBayPassword;
+                    } else {
+                        passwordType = 'Thốt Nốt';
+                        currentPassword = thotNotPassword;
+                        dbPath = 'settings_v2/thotNotPassword';
+                        setPasswordFunc = setThotNotPassword;
+                    }
+                }
+                
+                const currentPass = prompt(`Nhập mật khẩu hiện tại (${passwordType}):`);
+                if (!currentPass) {
+                    return; // User cancelled
+                }
+                
+                if (currentPass !== currentPassword) {
+                    alert('❌ Mật khẩu hiện tại không đúng!');
+                    return;
+                }
+                
+                const newPass = prompt('Nhập mật khẩu mới:');
+                if (!newPass) {
+                    return; // User cancelled
+                }
+                
+                if (newPass.length < 4) {
+                    alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
+                    return;
+                }
+                
+                const confirmPass = prompt('Nhập lại mật khẩu mới:');
+                if (!confirmPass) {
+                    return; // User cancelled
+                }
+                
+                if (newPass !== confirmPass) {
+                    alert('❌ Mật khẩu xác nhận không khớp!');
+                    return;
+                }
+                
+                try {
+                    await db.ref(dbPath).set(newPass);
+                    setPasswordFunc(newPass);
+                    alert('✅ Đổi mật khẩu thành công!');
+                } catch (error) {
+                    console.error('Error changing password:', error);
+                    alert('❌ Lỗi khi đổi mật khẩu: ' + error.message + '\n\nVui lòng kiểm tra:\n1. Kết nối Internet\n2. Quyền ghi Firebase Database');
+                }
+            };
+
+            const managePasswords = async () => {
+                if (userRole !== 'admin') {
+                    alert('❌ Chỉ Admin mới có quyền quản lý tài khoản!');
+                    return;
+                }
+
+                const accounts = [
+                    { name: '👨‍💼 Admin (Toàn quyền)', role: 'admin', path: 'passwords_v2/admin', currentPass: adminPassword, setter: setAdminPassword },
+                    { name: '👨‍💻 Nhân viên Ngã Bảy', role: 'nga-bay', path: 'passwords_v2/nga-bay', currentPass: ngaBayPassword, setter: setNgaBayPassword },
+                    { name: '👨‍💻 Nhân viên Thốt Nốt', role: 'thot-not', path: 'passwords_v2/thot-not', currentPass: thotNotPassword, setter: setThotNotPassword }
+                ];
+
+                let message = '👥 QUẢN LÝ TÀI KHOẢN\n\n';
+                message += 'Chọn tài khoản cần đổi mật khẩu:\n\n';
+                accounts.forEach((acc, i) => {
+                    message += `${i + 1}. ${acc.name}\n`;
+                });
+                message += '\nNhập số (1-3) hoặc 0 để hủy:';
+
+                const choice = prompt(message);
+                if (!choice || choice === '0') return;
+
+                const index = parseInt(choice) - 1;
+                if (index < 0 || index >= accounts.length) {
+                    alert('❌ Lựa chọn không hợp lệ!');
+                    return;
+                }
+
+                const account = accounts[index];
+                
+                const newPass = prompt(`🔐 Đổi mật khẩu cho: ${account.name}\n\nNhập mật khẩu mới:`);
+                if (!newPass) return;
+                
+                if (newPass.length < 4) {
+                    alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
+                    return;
+                }
+                
+                const confirmPass = prompt('Nhập lại mật khẩu mới để xác nhận:');
+                if (!confirmPass) return;
+                
+                if (newPass !== confirmPass) {
+                    alert('❌ Mật khẩu xác nhận không khớp!');
+                    return;
+                }
+                
+                try {
+                    await db.ref(account.path).set(newPass);
+                    account.setter(newPass);
+                    alert(`✅ Đã đổi mật khẩu thành công cho: ${account.name}`);
+                } catch (error) {
+                    console.error('Error changing password:', error);
+                    alert('❌ Lỗi khi đổi mật khẩu: ' + error.message);
+                }
+            };
+
+            const updateMinVersion = async () => {
+                if (userRole !== 'admin') {
+                    alert('❌ Chỉ Admin mới có quyền cập nhật version!');
+                    return;
+                }
+
+                const currentMinVersion = await db.ref('settings_v2/minVersion').once('value').then(s => s.val() || '1.0.0');
+                
+                let message = '🔄 CẬP NHẬT PHIÊN BẢN TỐI THIỂU\n\n';
+                message += `📱 File hiện tại: ${APP_VERSION}\n`;
+                message += `🔒 Phiên bản tối thiểu hiện tại: ${currentMinVersion}\n\n`;
+                message += '─────────────────────────────\n\n';
+                message += '⚠️ Chặn tất cả file cũ?\n\n';
+                message += 'Nhập "YES" để cập nhật minVersion = ' + APP_VERSION + '\n';
+                message += '(Tất cả file < ' + APP_VERSION + ' sẽ bị chặn)';
+
+                const confirm = prompt(message);
+                
+                if (confirm === 'YES') {
+                    try {
+                        await db.ref('settings_v2/minVersion').set(APP_VERSION);
+                        alert(`✅ Đã cập nhật!\n\nminVersion = ${APP_VERSION}\n\nTất cả file cũ hơn ${APP_VERSION} giờ sẽ bị chặn.`);
+                    } catch (error) {
+                        alert('❌ Lỗi: ' + error.message);
+                    }
+                } else {
+                    alert('❌ Đã hủy');
+                }
+            };
+
+            const toggleAppEnabled = async () => {
+                if (userRole !== 'admin') {
+                    alert('❌ Chỉ Admin mới có quyền khóa app!');
+                    return;
+                }
+
+                const currentStatus = await db.ref('settings/appEnabled').once('value').then(s => s.val());
+                
+                if (currentStatus === false) {
+                    // Đang khóa → Mở
+                    const confirm = window.confirm('🔓 MỞ KHÓA TẤT CẢ APP?\n\nTất cả file (cũ và mới) sẽ hoạt động trở lại.');
+                    if (confirm) {
+                        await db.ref('settings/appEnabled').set(true);
+                        alert('✅ Đã mở khóa! Tất cả app có thể vào lại.');
+                    }
+                } else {
+                    // Đang mở → Khóa
+                    let message = '🔒 KHÓA TẤT CẢ APP CŨ?\n\n';
+                    message += '⚠️ CẢNH BÁO NGHIÊM TRỌNG:\n\n';
+                    message += '• TẤT CẢ file cũ sẽ BỊ KHÓA NGAY LẬP TỨC\n';
+                    message += '• File hiện tại (v' + APP_VERSION + ') VẪN HOẠT ĐỘNG\n';
+                    message += '• Dùng để BUỘC tất cả phải update\n\n';
+                    message += '─────────────────────────\n\n';
+                    message += 'Nhập "KHOA" (viết hoa) để xác nhận:';
+                    
+                    const confirm = prompt(message);
+                    
+                    if (confirm === 'KHOA') {
+                        await db.ref('settings/appEnabled').set(false);
+                        alert('🔒 ĐÃ KHÓA!\n\nTất cả file cũ giờ không thể mở được.\n\nĐể mở lại: Click nút "🔒 Khóa app cũ" lần nữa.');
+                    } else {
+                        alert('❌ Đã hủy');
+                    }
+                }
+            };
+
+            // Load data when date/branch changes
+            useEffect(() => {
+                if (user) {
+                    loadDailyData();
+                    loadCustomPrices();
+                }
+            }, [selectedBranch, selectedDate, user]);
+
+            // Reload report data when branch changes
+            useEffect(() => {
+                if (user && userRole === 'admin') {
+                    if (currentView === 'report') {
+                        loadMonthlyData();
+                    } else if (currentView === 'yearly') {
+                        loadYearlyData();
+                    }
+                }
+            }, [selectedBranch, selectedDate, currentView]);
+
+            const loadCustomPrices = () => {
+                db.ref(`settings_v2/customPrices/${selectedBranch}`).once('value', (snapshot) => {
+                    const prices = snapshot.val() || [];
+                    setCustomPrices(prices);
+                });
+            };
+
+            const saveCustomPrices = (prices) => {
+                db.ref(`settings_v2/customPrices/${selectedBranch}`).set(prices);
+                setCustomPrices(prices);
+            };
+
+            const loadDailyData = () => {
+                const dateKey = selectedDate.replace(/-/g, '');
+                const dataRef = db.ref(`daily_v2/${selectedBranch}/${dateKey}`);
+                
+                dataRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        setDailyData(data);
+                    } else {
+                        setDailyData({
+                            examinations: {},
+                            expenses: [],
+                            doctorFees: []
+                        });
+                    }
+                });
+
+                return () => dataRef.off();
+            };
+
+            const loadMonthlyData = () => {
+                const year = selectedDate.substring(0, 4);
+                const month = selectedDate.substring(5, 7);
+                const monthKey = year + month;
+                
+                const dataRef = db.ref(`daily_v2/${selectedBranch}`);
+                dataRef.orderByKey().startAt(monthKey + '01').endAt(monthKey + '31').once('value', (snapshot) => {
+                    const data = {};
+                    snapshot.forEach((child) => {
+                        data[child.key] = child.val();
+                    });
+                    setMonthlyData(data);
+                });
+            };
+
+            const loadYearlyData = () => {
+                const year = selectedDate.substring(0, 4);
+                const startKey = year + '0101';
+                const endKey = year + '1231';
+                
+                const dataRef = db.ref(`daily_v2/${selectedBranch}`);
+                dataRef.orderByKey().startAt(startKey).endAt(endKey).once('value', (snapshot) => {
+                    const data = {};
+                    snapshot.forEach((child) => {
+                        data[child.key] = child.val();
+                    });
+                    setYearlyData(data);
+                });
+            };
+
+            const loadMonthlyMedicineData = () => {
+                const year = selectedDate.substring(0, 4);
+                const month = selectedDate.substring(5, 7);
+                const monthKey = year + month;
+                
+                const medicineRef = db.ref(`monthlyMedicines/${selectedBranch}/${monthKey}`);
+                medicineRef.once('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        setMonthlyMedicines(data);
+                    } else {
+                        setMonthlyMedicines({ medicines: [] });
+                    }
+                });
+            };
+
+            const saveMonthlyMedicines = async (medicines) => {
+                try {
+                    const year = selectedDate.substring(0, 4);
+                    const month = selectedDate.substring(5, 7);
+                    const monthKey = year + month;
+                    
+                    await db.ref(`monthlyMedicines/${selectedBranch}/${monthKey}`).set({
+                        medicines: medicines,
+                        month: `${year}-${month}`,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: userRole
+                    });
+                    
+                    setMonthlyMedicines({ medicines: medicines });
+                    alert('✅ Đã lưu tiền thuốc tháng thành công!');
+                } catch (error) {
+                    alert('❌ Lỗi khi lưu: ' + error.message);
+                }
+            };
+
+            const handleLogin = () => {
+                // Hỏi mật khẩu
+                const password = prompt('🔐 Nhập mật khẩu:');
+                if (!password) return;
+
+                // Kiểm tra Admin
+                if (password === adminPassword) {
+                    setUser({ role: 'admin', branch: null });
+                    setUserRole('admin');
+                    setAllowedBranch('all');
+                    setShowLogin(false);
+                    return;
+                }
+
+                // Kiểm tra Nhân viên Ngã Bảy
+                if (password === ngaBayPassword) {
+                    setUser({ role: 'staff', branch: 'nga-bay' });
+                    setUserRole('staff');
+                    setAllowedBranch('nga-bay');
+                    setSelectedBranch('nga-bay');
+                    setShowLogin(false);
+                    return;
+                }
+
+                // Kiểm tra Nhân viên Thốt Nốt
+                if (password === thotNotPassword) {
+                    setUser({ role: 'staff', branch: 'thot-not' });
+                    setUserRole('staff');
+                    setAllowedBranch('thot-not');
+                    setSelectedBranch('thot-not');
+                    setShowLogin(false);
+                    return;
+                }
+
+                // Sai mật khẩu
+                alert('❌ Mật khẩu không đúng!');
+            };
+
+            const handleLogout = () => {
+                setUser(null);
+                setUserRole(null);
+                setAllowedBranch(null);
+                setShowLogin(true);
+                setCurrentView('input');
+                setSelectedBranch('nga-bay');
+            };
+
+            const saveData = async () => {
+                try {
+                    const dateKey = selectedDate.replace(/-/g, '');
+                    await db.ref(`daily_v2/${selectedBranch}/${dateKey}`).set({
+                        ...dailyData,
+                        branch: selectedBranch,
+                        date: selectedDate,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: userRole
+                    });
+                    alert('✅ Đã lưu dữ liệu thành công!');
+                } catch (error) {
+                    alert('❌ Lỗi khi lưu: ' + error.message);
+                }
+            };
+
+            const calculateTotals = () => {
+                const examTotal = Object.entries(dailyData.examinations || {})
+                    .filter(([price, count]) => count && parseFloat(count) > 0)
+                    .reduce((sum, [price, count]) => {
+                        return sum + (parseFloat(price) * parseFloat(count));
+                    }, 0);
+
+                const expenseTotal = (dailyData.expenses || []).reduce((sum, exp) => {
+                    return sum + parseFloat(exp.amount || 0);
+                }, 0);
+
+                const doctorTotal = (dailyData.doctorFees || []).reduce((sum, fee) => {
+                    return sum + parseFloat(fee.amount || 0);
+                }, 0);
+
+                const medicineTotal = (dailyData.medicines || []).reduce((sum, med) => {
+                    return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
+                }, 0);
+
+                return {
+                    examTotal,
+                    expenseTotal,
+                    doctorTotal,
+                    medicineTotal,
+                    grandTotal: examTotal - expenseTotal - doctorTotal - medicineTotal
+                };
+            };
+
+            // Version Blocked Screen
+            if (versionBlocked) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen px-4 bg-red-50">
+                        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full border-4 border-red-500">
+                            <div className="text-center mb-6">
+                                <div className="text-6xl mb-4">🚫</div>
+                                <h1 className="text-3xl font-bold text-red-600 mb-2">
+                                    Phiên bản cũ
+                                </h1>
+                                <p className="text-gray-700 text-lg">
+                                    Vui lòng cập nhật phiên bản mới
+                                </p>
+                            </div>
+                            
+                            <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-6">
+                                <div className="space-y-2 text-sm">
+                                    <p className="text-gray-700">
+                                        <span className="font-semibold">Phiên bản hiện tại:</span>
+                                        <span className="ml-2 text-red-600 font-mono">{APP_VERSION}</span>
+                                    </p>
+                                    <p className="text-gray-700">
+                                        <span className="font-semibold">Phiên bản yêu cầu:</span>
+                                        <span className="ml-2 text-green-600 font-mono">{requiredVersion}</span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+                                <p className="text-sm text-gray-700">
+                                    <span className="font-semibold text-yellow-700">⚠️ Hướng dẫn:</span><br/>
+                                    1. Liên hệ Admin để lấy file mới<br/>
+                                    2. Tải file <code className="bg-gray-200 px-1 rounded">clinic-final.html</code> mới nhất<br/>
+                                    3. Mở file mới trong trình duyệt<br/>
+                                    4. Xóa file cũ để tránh nhầm lẫn
+                                </p>
+                            </div>
+
+                            <div className="mt-6 text-center">
+                                <p className="text-xs text-gray-500">
+                                    Phòng Khám Bách Bảo - Version Control
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Login Screen
+            if (showLogin) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen px-4">
+                        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full">
+                            <div className="text-center mb-8">
+                                <h1 className="text-4xl font-bold text-blue-600 mb-2">
+                                    Phòng Khám Bách Bảo
+                                </h1>
+                                <p className="text-gray-600">Hệ thống quản lý thu chi</p>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <button
+                                    onClick={() => handleLogin()}
+                                    className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-4 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-purple-800 transition shadow-lg transform hover:scale-105"
+                                >
+                                    🔐 Đăng nhập
+                                </button>
+                            </div>
+
+                            <div className="mt-6 text-center">
+                                <p className="text-xs text-gray-500">
+                                    © 2025 Phòng Khám Bách Bảo - Quản lý nội bộ
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            const totals = calculateTotals();
+            
+            // Check if readonly (staff viewing old date)
+            const today = new Date().toISOString().split('T')[0];
+            const isReadOnly = userRole === 'staff' && selectedDate !== today;
+
+            return (
+                <div className="container mx-auto px-4 py-6 max-w-7xl">
+                    {/* Header */}
+                    <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h1 className="text-3xl font-bold text-blue-600">Phòng Khám Bách Bảo</h1>
+                                <p className="text-sm text-gray-600 mt-1">Hệ thống quản lý thu chi</p>
+                            </div>
+                            <div className="flex gap-2">
+                                {userRole === 'admin' && (
+                                    <>
+                                        <button
+                                            onClick={toggleAppEnabled}
+                                            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition font-semibold"
+                                            title="Khóa tất cả file cũ"
+                                        >
+                                            🔒 Khóa app cũ
+                                        </button>
+                                        <button
+                                            onClick={updateMinVersion}
+                                            className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition font-semibold"
+                                            title="Chặn phiên bản cũ"
+                                        >
+                                            🔄 Cập nhật version
+                                        </button>
+                                        <button
+                                            onClick={managePasswords}
+                                            className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition font-semibold"
+                                        >
+                                            👥 Quản lý tài khoản
+                                        </button>
+                                    </>
+                                )}
+                                <button
+                                    onClick={handleLogout}
+                                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition font-semibold"
+                                >
+                                    🚪 Đăng xuất
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {/* Navigation */}
+                        <div className="flex gap-2 mb-4 flex-wrap">
+                            <button
+                                onClick={() => setCurrentView('input')}
+                                className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                    currentView === 'input'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                }`}
+                            >
+                                📝 Nhập liệu
+                            </button>
+                            {userRole === 'admin' && (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            setCurrentView('report');
+                                            loadMonthlyData();
+                                        }}
+                                        className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                            currentView === 'report'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        📊 Báo cáo tháng
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setCurrentView('yearly');
+                                            loadYearlyData();
+                                        }}
+                                        className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                            currentView === 'yearly'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        📅 Báo cáo năm
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentView('medicine')}
+                                        className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                            currentView === 'medicine'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        ⚙️ Quản lý thuốc
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Branch & Date Selection */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Chi nhánh</label>
+                                {allowedBranch === 'all' ? (
+                                    <select
+                                        value={selectedBranch}
+                                        onChange={(e) => setSelectedBranch(e.target.value)}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                        <option value="nga-bay">🏥 Ngã Bảy</option>
+                                        <option value="thot-not">🏥 Thốt Nốt</option>
+                                    </select>
+                                ) : (
+                                    <div className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700 font-semibold">
+                                        🏥 {selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'} (Chi nhánh của bạn)
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Ngày</label>
+                                <input
+                                    type="date"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    {currentView === 'input' && (
+                        <div className="space-y-6">
+                            {/* Readonly Warning */}
+                            {isReadOnly && (
+                                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
+                                    <div className="flex">
+                                        <div className="flex-shrink-0">
+                                            <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                            </svg>
+                                        </div>
+                                        <div className="ml-3">
+                                            <p className="text-sm text-yellow-700 font-semibold">
+                                                ⚠️ Chế độ xem - Bạn chỉ có thể xem dữ liệu ngày cũ, không thể chỉnh sửa. Vui lòng chọn ngày hôm nay để nhập liệu.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Examination Fees */}
+                            <ExaminationSection 
+                                examinations={dailyData.examinations || {}}
+                                onChange={(exams) => setDailyData({...dailyData, examinations: exams})}
+                                readOnly={isReadOnly}
+                                customPrices={customPrices}
+                                saveCustomPrices={saveCustomPrices}
+                            />
+
+                            {/* Doctor Fees */}
+                            <DoctorFeesSection 
+                                doctorFees={dailyData.doctorFees || []}
+                                onChange={(fees) => setDailyData({...dailyData, doctorFees: fees})}
+                                readOnly={isReadOnly}
+                            />
+
+                            {/* Expenses */}
+                            <ExpensesSection 
+                                expenses={dailyData.expenses || []}
+                                onChange={(expenses) => setDailyData({...dailyData, expenses: expenses})}
+                                readOnly={isReadOnly}
+                            />
+
+                            {/* Medicines */}
+                            <MedicineSection 
+                                medicines={dailyData.medicines || []}
+                                medicineList={medicineList}
+                                onChange={(medicines) => setDailyData({...dailyData, medicines: medicines})}
+                                readOnly={isReadOnly}
+                            />
+
+                            {/* Summary */}
+                            <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg shadow-md p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-4">📊 Tổng kết ngày {selectedDate}</h2>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                                        <span className="font-semibold text-gray-700">💰 Tiền khám:</span>
+                                        <span className="text-green-600 font-bold text-xl">+{totals.examTotal.toLocaleString()}k</span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                                        <span className="font-semibold text-gray-700">👨‍⚕️ Lương bác sĩ:</span>
+                                        <span className="text-blue-600 font-bold text-xl">-{totals.doctorTotal.toLocaleString()}k</span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                                        <span className="font-semibold text-gray-700">💸 Tiền chi:</span>
+                                        <span className="text-orange-600 font-bold text-xl">-{totals.expenseTotal.toLocaleString()}k</span>
+                                    </div>
+                                    <div className="flex justify-between items-center p-3 bg-white rounded-lg">
+                                        <span className="font-semibold text-gray-700">💊 Tiền thuốc:</span>
+                                        <span className="text-purple-600 font-bold text-xl">-{totals.medicineTotal.toLocaleString()}k</span>
+                                    </div>
+                                    <hr className="my-2 border-gray-300"/>
+                                    <div className="flex justify-between items-center p-4 bg-white rounded-lg border-2 border-green-500">
+                                        <span className="font-bold text-lg text-gray-800">💵 Còn lại:</span>
+                                        <span className={`font-bold text-2xl ${totals.grandTotal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            {totals.grandTotal >= 0 ? '+' : ''}{totals.grandTotal.toLocaleString()}k
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Save Button */}
+                            <button
+                                onClick={saveData}
+                                disabled={isReadOnly}
+                                className={`w-full py-4 rounded-lg font-bold text-lg transition shadow-lg transform ${
+                                    isReadOnly 
+                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                                        : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 hover:scale-105'
+                                }`}
+                            >
+                                {isReadOnly ? '🔒 Chế độ xem - Không thể lưu' : '💾 Lưu dữ liệu'}
+                            </button>
+                        </div>
+                    )}
+
+                    {currentView === 'report' && userRole === 'admin' && (
+                        <ReportView 
+                            selectedBranch={selectedBranch}
+                            selectedDate={selectedDate}
+                            monthlyData={monthlyData}
+                        />
+                    )}
+
+                    {currentView === 'yearly' && userRole === 'admin' && (
+                        <YearlyReportView 
+                            selectedBranch={selectedBranch}
+                            selectedDate={selectedDate}
+                            yearlyData={yearlyData}
+                        />
+                    )}
+
+                    {currentView === 'medicine' && userRole === 'admin' && (
+                        <MedicineManagement 
+                            medicineList={medicineList}
+                            setMedicineList={setMedicineList}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // Yearly Report View Component
+        function YearlyReportView({ selectedBranch, selectedDate, yearlyData }) {
+            const year = selectedDate.substring(0, 4);
+
+            // Group data by month
+            const monthlyGroups = {};
+            for (let month = 1; month <= 12; month++) {
+                const monthKey = month.toString().padStart(2, '0');
+                monthlyGroups[monthKey] = [];
+            }
+
+            Object.entries(yearlyData).forEach(([dateKey, dayData]) => {
+                const month = dateKey.substring(4, 6);
+                if (monthlyGroups[month]) {
+                    monthlyGroups[month].push(dayData);
+                }
+            });
+
+            const calculateMonthTotals = (monthData) => {
+                let examTotal = 0, doctorTotal = 0, expenseTotal = 0, medicineTotal = 0, totalCases = 0;
+
+                monthData.forEach(dayData => {
+                    examTotal += Object.entries(dayData.examinations || {})
+                        .filter(([price, count]) => count && parseFloat(count) > 0)
+                        .reduce((sum, [price, count]) => {
+                            return sum + (parseFloat(price) * parseFloat(count));
+                        }, 0);
+
+                    doctorTotal += (dayData.doctorFees || []).reduce((sum, fee) => {
+                        return sum + parseFloat(fee.amount || 0);
+                    }, 0);
+
+                    expenseTotal += (dayData.expenses || []).reduce((sum, exp) => {
+                        return sum + parseFloat(exp.amount || 0);
+                    }, 0);
+
+                    medicineTotal += (dayData.medicines || []).reduce((sum, med) => {
+                        return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
+                    }, 0);
+
+                    totalCases += Object.entries(dayData.examinations || {})
+                        .filter(([price, count]) => count && parseFloat(count) > 0)
+                        .reduce((sum, [price, count]) => {
+                            return sum + parseInt(count);
+                        }, 0);
+                });
+
+                return {
+                    examTotal,
+                    doctorTotal,
+                    expenseTotal,
+                    medicineTotal,
+                    totalCases,
+                    netTotal: examTotal - doctorTotal - expenseTotal - medicineTotal
+                };
+            };
+
+            const monthlyTotals = Object.entries(monthlyGroups).map(([month, data]) => ({
+                month,
+                ...calculateMonthTotals(data)
+            }));
+
+            const yearTotal = monthlyTotals.reduce((acc, month) => ({
+                examTotal: acc.examTotal + month.examTotal,
+                doctorTotal: acc.doctorTotal + month.doctorTotal,
+                expenseTotal: acc.expenseTotal + month.expenseTotal,
+                medicineTotal: acc.medicineTotal + month.medicineTotal,
+                totalCases: acc.totalCases + month.totalCases,
+                netTotal: acc.netTotal + month.netTotal
+            }), { examTotal: 0, doctorTotal: 0, expenseTotal: 0, medicineTotal: 0, totalCases: 0, netTotal: 0 });
+
+            const exportYearlyToExcel = () => {
+                const wb = XLSX.utils.book_new();
+                
+                const data = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`Báo cáo năm ${year}`],
+                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [],
+                    ['Tháng', 'Tiền khám (k)', 'Số ca', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
+                ];
+
+                monthlyTotals.forEach(({ month, examTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, netTotal }) => {
+                    data.push([
+                        `Tháng ${parseInt(month)}`,
+                        examTotal,
+                        totalCases,
+                        doctorTotal,
+                        expenseTotal,
+                        medicineTotal,
+                        netTotal
+                    ]);
+                });
+
+                data.push([]);
+                data.push(['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal]);
+
+                const ws = XLSX.utils.aoa_to_sheet(data);
+                ws['!cols'] = [
+                    { wch: 12 },
+                    { wch: 15 },
+                    { wch: 10 },
+                    { wch: 15 },
+                    { wch: 15 },
+                    { wch: 15 },
+                    { wch: 15 }
+                ];
+
+                XLSX.utils.book_append_sheet(wb, ws, `Năm ${year}`);
+                XLSX.writeFile(wb, `BaoCaoNam_${selectedBranch}_${year}.xlsx`);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-800">
+                                    📅 Báo cáo năm {year}
+                                </h2>
+                                <h3 className="text-lg text-gray-600 mt-1">
+                                    Chi nhánh: {selectedBranch === 'nga-bay' ? '🏥 Ngã Bảy' : '🏥 Thốt Nốt'}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={exportYearlyToExcel}
+                                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition font-bold shadow-lg"
+                            >
+                                📥 Xuất Excel năm
+                            </button>
+                        </div>
+
+                        {/* Yearly Summary */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                            <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border-l-4 border-green-500 shadow">
+                                <p className="text-xs text-green-700 font-semibold mb-1">💰 Tiền khám</p>
+                                <p className="text-2xl font-bold text-green-600">{yearTotal.examTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-4 rounded-lg border-l-4 border-indigo-500 shadow">
+                                <p className="text-xs text-indigo-700 font-semibold mb-1">👥 Số ca</p>
+                                <p className="text-2xl font-bold text-indigo-600">{yearTotal.totalCases.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border-l-4 border-blue-500 shadow">
+                                <p className="text-xs text-blue-700 font-semibold mb-1">👨‍⚕️ Lương BS</p>
+                                <p className="text-2xl font-bold text-blue-600">{yearTotal.doctorTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg border-l-4 border-orange-500 shadow">
+                                <p className="text-xs text-orange-700 font-semibold mb-1">💸 Chi phí</p>
+                                <p className="text-2xl font-bold text-orange-600">{yearTotal.expenseTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border-l-4 border-purple-500 shadow">
+                                <p className="text-xs text-purple-700 font-semibold mb-1">💊 Tiền thuốc</p>
+                                <p className="text-2xl font-bold text-purple-600">{yearTotal.medicineTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className={`p-4 rounded-lg border-l-4 shadow ${yearTotal.netTotal >= 0 ? 'bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-500' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-500'}`}>
+                                <p className={`text-xs font-semibold mb-1 ${yearTotal.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>💵 Còn lại</p>
+                                <p className={`text-2xl font-bold ${yearTotal.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                    {yearTotal.netTotal.toLocaleString()}k
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Monthly Table */}
+                        <div className="overflow-x-auto">
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gradient-to-r from-gray-700 to-gray-800 text-white">
+                                        <th className="border border-gray-600 p-3 text-left">📅 Tháng</th>
+                                        <th className="border border-gray-600 p-3 text-right">💰 Tiền khám</th>
+                                        <th className="border border-gray-600 p-3 text-right">👥 Số ca</th>
+                                        <th className="border border-gray-600 p-3 text-right">👨‍⚕️ Lương BS</th>
+                                        <th className="border border-gray-600 p-3 text-right">💸 Chi phí</th>
+                                        <th className="border border-gray-600 p-3 text-right">💊 Tiền thuốc</th>
+                                        <th className="border border-gray-600 p-3 text-right">💵 Còn lại</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {monthlyTotals.map(({ month, examTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, netTotal }) => (
+                                        <tr key={month} className="hover:bg-blue-50 transition">
+                                            <td className="border border-gray-300 p-3 font-semibold">Tháng {parseInt(month)}</td>
+                                            <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
+                                                {examTotal.toLocaleString()}k
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-indigo-600 font-semibold">
+                                                {totalCases}
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-blue-600 font-semibold">
+                                                {doctorTotal.toLocaleString()}k
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-orange-600 font-semibold">
+                                                {expenseTotal.toLocaleString()}k
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-purple-600 font-semibold">
+                                                {medicineTotal.toLocaleString()}k
+                                            </td>
+                                            <td className={`border border-gray-300 p-3 text-right font-bold ${netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {netTotal.toLocaleString()}k
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    <tr className="bg-gray-100 font-bold">
+                                        <td className="border border-gray-300 p-3">TỔNG NĂM</td>
+                                        <td className="border border-gray-300 p-3 text-right text-green-600">
+                                            {yearTotal.examTotal.toLocaleString()}k
+                                        </td>
+                                        <td className="border border-gray-300 p-3 text-right text-indigo-600">
+                                            {yearTotal.totalCases}
+                                        </td>
+                                        <td className="border border-gray-300 p-3 text-right text-blue-600">
+                                            {yearTotal.doctorTotal.toLocaleString()}k
+                                        </td>
+                                        <td className="border border-gray-300 p-3 text-right text-orange-600">
+                                            {yearTotal.expenseTotal.toLocaleString()}k
+                                        </td>
+                                        <td className="border border-gray-300 p-3 text-right text-purple-600">
+                                            {yearTotal.medicineTotal.toLocaleString()}k
+                                        </td>
+                                        <td className={`border border-gray-300 p-3 text-right ${yearTotal.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                            {yearTotal.netTotal.toLocaleString()}k
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Medicine Management Component
+        function MedicineManagement({ medicineList, setMedicineList }) {
+            const [newMedicine, setNewMedicine] = useState('');
+            const [newPrice, setNewPrice] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [editingIndex, setEditingIndex] = useState(null);
+
+            const addMedicine = async () => {
+                if (!newMedicine.trim()) {
+                    alert('Vui lòng nhập tên thuốc!');
+                    return;
+                }
+                
+                if (!newPrice || parseFloat(newPrice) <= 0) {
+                    alert('Vui lòng nhập giá hợp lệ!');
+                    return;
+                }
+
+                const medicineName = newMedicine.trim();
+                if (medicineList.some(m => m.name.toLowerCase() === medicineName.toLowerCase())) {
+                    alert('Thuốc này đã có trong danh sách!');
+                    return;
+                }
+
+                try {
+                    const updatedList = [...medicineList, { name: medicineName, price: parseFloat(newPrice) }]
+                        .sort((a, b) => a.name.localeCompare(b.name));
+                    await db.ref('settings_v2/medicineList').set(updatedList);
+                    setMedicineList(updatedList);
+                    setNewMedicine('');
+                    setNewPrice('');
+                    alert('✅ Đã thêm thuốc thành công!');
+                } catch (error) {
+                    alert('❌ Lỗi: ' + error.message);
+                }
+            };
+
+            const removeMedicine = async (index) => {
+                const medicine = filteredMedicines[index];
+                if (!confirm(`Xóa thuốc "${medicine.name}" khỏi danh sách?`)) {
+                    return;
+                }
+
+                try {
+                    const updatedList = medicineList.filter(m => m.name !== medicine.name);
+                    await db.ref('settings_v2/medicineList').set(updatedList);
+                    setMedicineList(updatedList);
+                    alert('✅ Đã xóa thuốc thành công!');
+                } catch (error) {
+                    alert('❌ Lỗi: ' + error.message);
+                }
+            };
+
+            const updatePrice = async (medicine, newPriceValue) => {
+                if (!newPriceValue || parseFloat(newPriceValue) <= 0) {
+                    alert('Vui lòng nhập giá hợp lệ!');
+                    return;
+                }
+
+                try {
+                    const updatedList = medicineList.map(m => 
+                        m.name === medicine.name 
+                            ? { ...m, price: parseFloat(newPriceValue) }
+                            : m
+                    );
+                    await db.ref('settings_v2/medicineList').set(updatedList);
+                    setMedicineList(updatedList);
+                    setEditingIndex(null);
+                    alert('✅ Đã cập nhật giá thành công!');
+                } catch (error) {
+                    alert('❌ Lỗi: ' + error.message);
+                }
+            };
+
+            const filteredMedicines = medicineList.filter(med => 
+                med.name.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-4">⚙️ Quản lý danh sách thuốc</h2>
+                        <p className="text-gray-600 mb-6">
+                            Danh sách thuốc thường dùng với giá mặc định. Dùng cho phần "Thêm từ danh sách" khi tính tiền thuốc tháng.
+                        </p>
+
+                        {/* Add Medicine */}
+                        <div className="flex gap-3 mb-6">
+                            <input
+                                type="text"
+                                value={newMedicine}
+                                onChange={(e) => setNewMedicine(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && newPrice && addMedicine()}
+                                placeholder="Tên thuốc mới..."
+                                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                            <input
+                                type="number"
+                                value={newPrice}
+                                onChange={(e) => setNewPrice(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && newMedicine && addMedicine()}
+                                placeholder="Giá (k)"
+                                className="w-32 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                            <button
+                                onClick={addMedicine}
+                                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition font-bold"
+                            >
+                                ➕ Thêm thuốc
+                            </button>
+                        </div>
+
+                        {/* Search */}
+                        <div className="mb-4">
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="🔍 Tìm kiếm thuốc..."
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                        </div>
+
+                        {/* Medicine List */}
+                        <div className="bg-gray-50 rounded-lg p-4">
+                            <div className="flex justify-between items-center mb-3">
+                                <p className="font-semibold text-gray-700">
+                                    Tổng số: {filteredMedicines.length} thuốc
+                                </p>
+                            </div>
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {filteredMedicines.length === 0 && (
+                                    <p className="text-gray-400 text-center py-8">
+                                        Không tìm thấy thuốc nào
+                                    </p>
+                                )}
+                                {filteredMedicines.map((medicine, index) => (
+                                    <div 
+                                        key={index}
+                                        className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-200 hover:border-blue-300 transition"
+                                    >
+                                        <div className="flex-1">
+                                            <span className="text-gray-800 font-medium capitalize">
+                                                {medicine.name}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            {editingIndex === index ? (
+                                                <>
+                                                    <input
+                                                        type="number"
+                                                        defaultValue={medicine.price}
+                                                        onKeyPress={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                updatePrice(medicine, e.target.value);
+                                                            }
+                                                        }}
+                                                        className="w-24 px-3 py-1 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                                        autoFocus
+                                                        onBlur={(e) => {
+                                                            if (e.target.value !== medicine.price.toString()) {
+                                                                updatePrice(medicine, e.target.value);
+                                                            } else {
+                                                                setEditingIndex(null);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="text-green-600 font-semibold">k</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="text-green-600 font-bold w-20 text-right">
+                                                        {medicine.price}k
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setEditingIndex(index)}
+                                                        className="text-blue-500 hover:text-blue-700 font-semibold text-sm"
+                                                        title="Sửa giá"
+                                                    >
+                                                        ✏️
+                                                    </button>
+                                                </>
+                                            )}
+                                            <button
+                                                onClick={() => removeMedicine(index)}
+                                                className="text-red-500 hover:text-red-700 font-bold text-lg"
+                                                title="Xóa thuốc này"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Examination Section with Add Custom Price
+        function ExaminationSection({ examinations, onChange, readOnly = false, customPrices = [], saveCustomPrices }) {
+            const [priceLevels, setPriceLevels] = useState([]);
+            const [newPrice, setNewPrice] = useState('');
+
+            // Rebuild price levels when examinations or customPrices change
+            useEffect(() => {
+                const existingPrices = Object.keys(examinations).map(p => parseFloat(p));
+                const allPrices = [...new Set([...DEFAULT_PRICE_LEVELS, ...customPrices, ...existingPrices])];
+                setPriceLevels(allPrices.sort((a, b) => a - b));
+            }, [examinations, customPrices]);
+
+            const addCustomPrice = () => {
+                const price = parseFloat(newPrice);
+                if (price && price > 0 && !customPrices.includes(price) && !DEFAULT_PRICE_LEVELS.includes(price)) {
+                    const updated = [...customPrices, price].sort((a, b) => a - b);
+                    saveCustomPrices(updated);
+                    setNewPrice('');
+                }
+            };
+
+            const removePrice = (price) => {
+                if (confirm(`Xóa mức giá ${price}k?`)) {
+                    // Remove from custom prices
+                    const updatedCustom = customPrices.filter(p => p !== price);
+                    saveCustomPrices(updatedCustom);
+                    
+                    // Remove from examinations
+                    const updated = {...examinations};
+                    delete updated[price];
+                    onChange(updated);
+                }
+            };
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">💰 Tiền khám bệnh</h2>
+                        {!readOnly && (
+                            <div className="flex gap-2">
+                                <input
+                                    type="number"
+                                    value={newPrice}
+                                    onChange={(e) => setNewPrice(e.target.value)}
+                                    placeholder="Giá mới (k)"
+                                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    onKeyPress={(e) => e.key === 'Enter' && addCustomPrice()}
+                                />
+                                <button
+                                    onClick={addCustomPrice}
+                                    className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition font-semibold"
+                                >
+                                    ➕ Thêm giá
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        {priceLevels.map(price => (
+                            <div key={price} className="relative">
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-semibold text-gray-600">
+                                            {price}k
+                                        </label>
+                                        {!DEFAULT_PRICE_LEVELS.includes(price) && customPrices.includes(price) && !readOnly && (
+                                            <button
+                                                onClick={() => removePrice(price)}
+                                                className="text-red-500 hover:text-red-700 text-xs"
+                                                title="Xóa mức giá này"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={examinations?.[price] || ''}
+                                        onChange={(e) => {
+                                            onChange({
+                                                ...examinations,
+                                                [price]: e.target.value
+                                            });
+                                        }}
+                                        disabled={readOnly}
+                                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg font-semibold ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                        <div className="flex justify-between items-center mb-2">
+                            <p className="text-lg font-bold text-blue-800">
+                                Tổng tiền khám: {Object.entries(examinations || {})
+                                    .filter(([price, count]) => count && parseFloat(count) > 0)
+                                    .reduce((sum, [price, count]) => {
+                                        return sum + (parseFloat(price) * parseFloat(count));
+                                    }, 0).toLocaleString()}k
+                            </p>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <p className="text-sm font-semibold text-blue-700">
+                                Tổng số ca:
+                            </p>
+                            <p className="text-lg font-bold text-blue-600">
+                                {Object.entries(examinations || {})
+                                    .filter(([price, count]) => count && parseFloat(count) > 0)
+                                    .reduce((sum, [price, count]) => {
+                                        return sum + parseInt(count);
+                                    }, 0)} ca
+                            </p>
+                        </div>
+                        {/* Debug: Chi tiết tính toán */}
+                        <details className="mt-3">
+                            <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
+                                🔍 Xem chi tiết tính toán
+                            </summary>
+                            <div className="mt-2 text-xs bg-white p-2 rounded border border-blue-200 max-h-40 overflow-y-auto">
+                                {Object.entries(examinations || {})
+                                    .filter(([price, count]) => count && parseFloat(count) > 0)
+                                    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+                                    .map(([price, count]) => (
+                                        <div key={price} className="flex justify-between py-1 border-b border-gray-100">
+                                            <span>{price}k × {count} ca</span>
+                                            <span className="font-semibold text-green-600">
+                                                = {(parseFloat(price) * parseFloat(count)).toLocaleString()}k
+                                            </span>
+                                        </div>
+                                    ))
+                                }
+                                <div className="flex justify-between py-2 mt-2 border-t-2 border-blue-300 font-bold">
+                                    <span>TỔNG</span>
+                                    <span className="text-blue-700">
+                                        = {Object.entries(examinations || {})
+                                            .filter(([price, count]) => count && parseFloat(count) > 0)
+                                            .reduce((sum, [price, count]) => {
+                                                return sum + (parseFloat(price) * parseFloat(count));
+                                            }, 0).toLocaleString()}k
+                                    </span>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            );
+        }
+
+        // Doctor Fees Component
+        function DoctorFeesSection({ doctorFees, onChange, readOnly = false }) {
+            const addDoctorFee = () => {
+                onChange([...doctorFees, { doctor: '', amount: '' }]);
+            };
+
+            const removeDoctorFee = (index) => {
+                onChange(doctorFees.filter((_, i) => i !== index));
+            };
+
+            const updateDoctorFee = (index, field, value) => {
+                const updated = [...doctorFees];
+                updated[index][field] = value;
+                onChange(updated);
+            };
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">👨‍⚕️ Lương bác sĩ</h2>
+                        {!readOnly && (
+                            <button
+                                onClick={addDoctorFee}
+                                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition font-semibold"
+                            >
+                                ➕ Thêm BS
+                            </button>
+                        )}
+                    </div>
+                    <div className="space-y-3">
+                        {doctorFees.length === 0 && (
+                            <p className="text-gray-400 text-center py-4">Chưa có lương bác sĩ nào</p>
+                        )}
+                        {doctorFees.map((fee, index) => (
+                            <div key={index} className="flex gap-3 items-center bg-gray-50 p-3 rounded-lg">
+                                <input
+                                    type="text"
+                                    value={fee.doctor}
+                                    onChange={(e) => updateDoctorFee(index, 'doctor', e.target.value)}
+                                    placeholder="BS Khánh, BS Trung..."
+                                    disabled={readOnly}
+                                    className={`flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                />
+                                <input
+                                    type="number"
+                                    value={fee.amount}
+                                    onChange={(e) => updateDoctorFee(index, 'amount', e.target.value)}
+                                    placeholder="500"
+                                    disabled={readOnly}
+                                    className={`w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                />
+                                <span className="text-gray-600 font-semibold">k</span>
+                                {!readOnly && (
+                                    <button
+                                        onClick={() => removeDoctorFee(index)}
+                                        className="bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 transition font-bold"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // Expenses Component
+        function ExpensesSection({ expenses, onChange, readOnly = false }) {
+            const addExpense = () => {
+                onChange([...expenses, { description: '', amount: '' }]);
+            };
+
+            const removeExpense = (index) => {
+                onChange(expenses.filter((_, i) => i !== index));
+            };
+
+            const updateExpense = (index, field, value) => {
+                const updated = [...expenses];
+                updated[index][field] = value;
+                onChange(updated);
+            };
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">💸 Tiền chi</h2>
+                        {!readOnly && (
+                            <button
+                                onClick={addExpense}
+                                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition font-semibold"
+                            >
+                                ➕ Thêm chi phí
+                            </button>
+                        )}
+                    </div>
+                    <div className="space-y-3">
+                        {expenses.length === 0 && (
+                            <p className="text-gray-400 text-center py-4">Chưa có chi phí nào</p>
+                        )}
+                        {expenses.map((expense, index) => (
+                            <div key={index} className="flex gap-3 items-center bg-gray-50 p-3 rounded-lg">
+                                <input
+                                    type="text"
+                                    value={expense.description}
+                                    onChange={(e) => updateExpense(index, 'description', e.target.value)}
+                                    placeholder="Tiền điện, nước, lương..."
+                                    disabled={readOnly}
+                                    className={`flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                />
+                                <input
+                                    type="number"
+                                    value={expense.amount}
+                                    onChange={(e) => updateExpense(index, 'amount', e.target.value)}
+                                    placeholder="200"
+                                    disabled={readOnly}
+                                    className={`w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                />
+                                <span className="text-gray-600 font-semibold">k</span>
+                                {!readOnly && (
+                                    <button
+                                        onClick={() => removeExpense(index)}
+                                        className="bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 transition font-bold"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // Medicine Section Component
+        function MedicineSection({ medicines, medicineList, onChange, readOnly = false }) {
+            const [showSuggestions, setShowSuggestions] = useState({});
+            const [showMedicineSelect, setShowMedicineSelect] = useState(false);
+
+            const addMedicine = () => {
+                onChange([...medicines, { name: '', quantity: '', price: '' }]);
+            };
+
+            const addFromList = (medicine) => {
+                const existing = medicines.find(m => m.name.toLowerCase() === medicine.name.toLowerCase());
+                if (existing) {
+                    alert('Thuốc này đã có trong danh sách!');
+                    return;
+                }
+                onChange([...medicines, { name: medicine.name, quantity: '', price: medicine.price }]);
+                setShowMedicineSelect(false);
+            };
+
+            const removeMedicine = (index) => {
+                onChange(medicines.filter((_, i) => i !== index));
+            };
+
+            const updateMedicine = (index, field, value) => {
+                const updated = [...medicines];
+                updated[index][field] = value;
+                
+                // Auto-fill price when selecting from suggestions
+                if (field === 'name') {
+                    const matchedMedicine = medicineList.find(m => m.name.toLowerCase() === value.toLowerCase());
+                    if (matchedMedicine && !updated[index].price) {
+                        updated[index].price = matchedMedicine.price;
+                    }
+                }
+                
+                onChange(updated);
+            };
+
+            const selectMedicine = (index, medicine) => {
+                const updated = [...medicines];
+                updated[index].name = medicine.name;
+                updated[index].price = medicine.price;
+                onChange(updated);
+                setShowSuggestions({ ...showSuggestions, [index]: false });
+            };
+
+            const getSuggestions = (index, searchTerm) => {
+                if (!searchTerm || searchTerm.length < 2) return [];
+                return medicineList.filter(med => 
+                    med.name.toLowerCase().includes(searchTerm.toLowerCase())
+                ).slice(0, 10);
+            };
+
+            const totalMedicine = medicines.reduce((sum, med) => {
+                return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
+            }, 0);
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">💊 Tiền thuốc</h2>
+                        {!readOnly && (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowMedicineSelect(!showMedicineSelect)}
+                                    className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition font-semibold"
+                                >
+                                    📚 Chọn từ danh sách
+                                </button>
+                                <button
+                                    onClick={addMedicine}
+                                    className="bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition font-semibold"
+                                >
+                                    ➕ Thêm thuốc
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Medicine Select Popup */}
+                    {showMedicineSelect && !readOnly && (
+                        <div className="mb-4 bg-green-50 border-2 border-green-300 rounded-lg p-4">
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="font-bold text-gray-800">Chọn thuốc từ danh sách:</h3>
+                                <button
+                                    onClick={() => setShowMedicineSelect(false)}
+                                    className="text-red-500 hover:text-red-700 font-bold text-xl"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto">
+                                {medicineList.map((med, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => addFromList(med)}
+                                        className="text-left px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-green-100 hover:border-green-500 transition text-sm"
+                                    >
+                                        <div className="font-semibold capitalize">{med.name}</div>
+                                        <div className="text-xs text-green-600 font-bold">{med.price}k</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="space-y-3">
+                        {medicines.length === 0 && (
+                            <p className="text-gray-400 text-center py-4">Chưa có thuốc nào</p>
+                        )}
+                        {medicines.map((medicine, index) => {
+                            const suggestions = showSuggestions[index] ? getSuggestions(index, medicine.name) : [];
+                            const total = (parseFloat(medicine.quantity || 0) * parseFloat(medicine.price || 0));
+                            
+                            return (
+                                <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                                    <div className="flex gap-3 items-start">
+                                        <div className="flex-1 relative">
+                                            <input
+                                                type="text"
+                                                value={medicine.name}
+                                                onChange={(e) => {
+                                                    updateMedicine(index, 'name', e.target.value);
+                                                    setShowSuggestions({ ...showSuggestions, [index]: true });
+                                                }}
+                                                onFocus={() => setShowSuggestions({ ...showSuggestions, [index]: true })}
+                                                onBlur={() => setTimeout(() => setShowSuggestions({ ...showSuggestions, [index]: false }), 200)}
+                                                placeholder="Tên thuốc..."
+                                                disabled={readOnly}
+                                                className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 capitalize ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                            />
+                                            {suggestions.length > 0 && !readOnly && (
+                                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                                    {suggestions.map((suggestion, i) => (
+                                                        <div
+                                                            key={i}
+                                                            onClick={() => selectMedicine(index, suggestion)}
+                                                            className="px-4 py-2 hover:bg-purple-50 cursor-pointer"
+                                                        >
+                                                            <div className="font-semibold capitalize text-sm">{suggestion.name}</div>
+                                                            <div className="text-xs text-green-600 font-bold">{suggestion.price}k</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="number"
+                                            value={medicine.quantity}
+                                            onChange={(e) => updateMedicine(index, 'quantity', e.target.value)}
+                                            placeholder="SL"
+                                            disabled={readOnly}
+                                            className={`w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-center ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                        />
+                                        <input
+                                            type="number"
+                                            value={medicine.price}
+                                            onChange={(e) => updateMedicine(index, 'price', e.target.value)}
+                                            placeholder="Giá"
+                                            disabled={readOnly}
+                                            className={`w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                        />
+                                        <div className="w-28 px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-center font-semibold text-purple-700">
+                                            {total.toLocaleString()}k
+                                        </div>
+                                        {!readOnly && (
+                                            <button
+                                                onClick={() => removeMedicine(index)}
+                                                className="bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 transition font-bold"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {medicines.length > 0 && (
+                            <div className="mt-4 p-4 bg-purple-50 rounded-lg border-2 border-purple-300">
+                                <p className="text-lg font-bold text-purple-800">
+                                    Tổng tiền thuốc: {totalMedicine.toLocaleString()}k
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Report View Component
+        function ReportView({ selectedBranch, selectedDate, monthlyData }) {
+            const calculateDayTotals = (dayData) => {
+                const examTotal = Object.entries(dayData.examinations || {})
+                    .filter(([price, count]) => count && parseFloat(count) > 0)
+                    .reduce((sum, [price, count]) => {
+                        return sum + (parseFloat(price) * parseFloat(count));
+                    }, 0);
+
+                const expenseTotal = (dayData.expenses || []).reduce((sum, exp) => {
+                    return sum + parseFloat(exp.amount || 0);
+                }, 0);
+
+                const doctorTotal = (dayData.doctorFees || []).reduce((sum, fee) => {
+                    return sum + parseFloat(fee.amount || 0);
+                }, 0);
+
+                const medicineTotal = (dayData.medicines || []).reduce((sum, med) => {
+                    return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
+                }, 0);
+
+                return {
+                    examTotal,
+                    expenseTotal,
+                    doctorTotal,
+                    medicineTotal,
+                    netTotal: examTotal - expenseTotal - doctorTotal - medicineTotal
+                };
+            };
+
+            const monthlyTotals = Object.values(monthlyData).reduce((acc, day) => {
+                const totals = calculateDayTotals(day);
+                return {
+                    examTotal: acc.examTotal + totals.examTotal,
+                    expenseTotal: acc.expenseTotal + totals.expenseTotal,
+                    doctorTotal: acc.doctorTotal + totals.doctorTotal,
+                    medicineTotal: acc.medicineTotal + totals.medicineTotal,
+                    netTotal: acc.netTotal + totals.netTotal
+                };
+            }, { examTotal: 0, expenseTotal: 0, doctorTotal: 0, medicineTotal: 0, netTotal: 0 });
+
+            const sortedDays = Object.entries(monthlyData).sort((a, b) => a[0].localeCompare(b[0]));
+
+            const exportToExcel = () => {
+                const wb = XLSX.utils.book_new();
+                
+                // Sheet 1: Tổng hợp
+                const summaryData = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`Báo cáo tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [],
+                    ['Ngày', 'Tiền khám (k)', 'Số ca', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
+                ];
+
+                sortedDays.forEach(([dateKey, dayData]) => {
+                    const totals = calculateDayTotals(dayData);
+                    const totalCases = Object.entries(dayData.examinations || {}).reduce((sum, [price, count]) => {
+                        return sum + parseInt(count || 0);
+                    }, 0);
+                    
+                    summaryData.push([
+                        dayData.date,
+                        totals.examTotal,
+                        totalCases,
+                        totals.doctorTotal,
+                        totals.expenseTotal,
+                        totals.medicineTotal,
+                        totals.netTotal
+                    ]);
+                });
+
+                summaryData.push([]);
+                
+                const totalCasesMonth = sortedDays.reduce((sum, [dateKey, dayData]) => {
+                    return sum + Object.entries(dayData.examinations || {}).reduce((s, [price, count]) => {
+                        return s + parseInt(count || 0);
+                    }, 0);
+                }, 0);
+                
+                summaryData.push(['TỔNG', monthlyTotals.examTotal, totalCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal]);
+
+                const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+                wsSummary['!cols'] = [
+                    { wch: 12 },
+                    { wch: 15 },
+                    { wch: 10 },
+                    { wch: 15 },
+                    { wch: 15 },
+                    { wch: 15 },
+                    { wch: 15 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng hợp');
+
+                // Sheet 2: Chi tiết tiền thuốc
+                const medicineData = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`Chi tiết tiền thuốc tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [],
+                    ['Ngày', 'Tên thuốc', 'Số lượng', 'Giá (k)', 'Thành tiền (k)'],
+                ];
+
+                sortedDays.forEach(([dateKey, dayData]) => {
+                    if (dayData.medicines && dayData.medicines.length > 0) {
+                        dayData.medicines.forEach((med, index) => {
+                            const total = parseFloat(med.quantity || 0) * parseFloat(med.price || 0);
+                            medicineData.push([
+                                index === 0 ? dayData.date : '',
+                                med.name,
+                                med.quantity,
+                                med.price,
+                                total
+                            ]);
+                        });
+                        // Tổng ngày
+                        const dayMedicineTotal = dayData.medicines.reduce((sum, med) => {
+                            return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
+                        }, 0);
+                        medicineData.push([
+                            '',
+                            `Tổng ${dayData.date}`,
+                            '',
+                            '',
+                            dayMedicineTotal
+                        ]);
+                        medicineData.push([]);
+                    }
+                });
+
+                medicineData.push([]);
+                medicineData.push(['', 'TỔNG TIỀN THUỐC THÁNG', '', '', monthlyTotals.medicineTotal]);
+
+                const wsMedicine = XLSX.utils.aoa_to_sheet(medicineData);
+                wsMedicine['!cols'] = [
+                    { wch: 12 },
+                    { wch: 30 },
+                    { wch: 12 },
+                    { wch: 12 },
+                    { wch: 15 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsMedicine, 'Chi tiết thuốc');
+
+                // Sheet 3: Chi tiết tiền khám
+                const examData = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`Chi tiết tiền khám tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [],
+                    ['Ngày', 'Giá khám (k)', 'Số ca', 'Thành tiền (k)'],
+                ];
+
+                sortedDays.forEach(([dateKey, dayData]) => {
+                    if (dayData.examinations && Object.keys(dayData.examinations).length > 0) {
+                        const sortedExams = Object.entries(dayData.examinations)
+                            .filter(([price, count]) => count && count > 0)
+                            .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
+                        
+                        sortedExams.forEach(([price, count], index) => {
+                            const total = parseFloat(price) * parseFloat(count);
+                            examData.push([
+                                index === 0 ? dayData.date : '',
+                                price,
+                                count,
+                                total
+                            ]);
+                        });
+                        
+                        const dayExamTotal = Object.entries(dayData.examinations).reduce((sum, [price, count]) => {
+                            return sum + (parseFloat(price) * parseFloat(count || 0));
+                        }, 0);
+                        const dayTotalCases = Object.entries(dayData.examinations).reduce((sum, [price, count]) => {
+                            return sum + parseInt(count || 0);
+                        }, 0);
+                        
+                        examData.push([
+                            '',
+                            `Tổng ${dayData.date}`,
+                            dayTotalCases,
+                            dayExamTotal
+                        ]);
+                        examData.push([]);
+                    }
+                });
+
+                examData.push([]);
+                examData.push(['', 'TỔNG THÁNG', totalCasesMonth, monthlyTotals.examTotal]);
+
+                const wsExam = XLSX.utils.aoa_to_sheet(examData);
+                wsExam['!cols'] = [
+                    { wch: 12 },
+                    { wch: 15 },
+                    { wch: 12 },
+                    { wch: 15 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsExam, 'Chi tiết khám');
+
+                // Sheet 4: Chi tiết lương bác sĩ
+                const doctorData = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`Chi tiết lương bác sĩ tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [],
+                    ['Ngày', 'Tên bác sĩ', 'Lương (k)'],
+                ];
+
+                sortedDays.forEach(([dateKey, dayData]) => {
+                    if (dayData.doctorFees && dayData.doctorFees.length > 0) {
+                        dayData.doctorFees.forEach((doc, index) => {
+                            doctorData.push([
+                                index === 0 ? dayData.date : '',
+                                doc.doctor,
+                                doc.amount
+                            ]);
+                        });
+                        const dayDoctorTotal = dayData.doctorFees.reduce((sum, doc) => {
+                            return sum + parseFloat(doc.amount || 0);
+                        }, 0);
+                        doctorData.push([
+                            '',
+                            `Tổng ${dayData.date}`,
+                            dayDoctorTotal
+                        ]);
+                        doctorData.push([]);
+                    }
+                });
+
+                doctorData.push([]);
+                doctorData.push(['', 'TỔNG LƯƠNG THÁNG', monthlyTotals.doctorTotal]);
+
+                const wsDoctor = XLSX.utils.aoa_to_sheet(doctorData);
+                wsDoctor['!cols'] = [
+                    { wch: 12 },
+                    { wch: 25 },
+                    { wch: 15 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsDoctor, 'Chi tiết lương BS');
+
+                // Sheet 5: Chi tiết chi phí
+                const expenseData = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`Chi tiết chi phí tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [],
+                    ['Ngày', 'Mô tả', 'Số tiền (k)'],
+                ];
+
+                sortedDays.forEach(([dateKey, dayData]) => {
+                    if (dayData.expenses && dayData.expenses.length > 0) {
+                        dayData.expenses.forEach((exp, index) => {
+                            expenseData.push([
+                                index === 0 ? dayData.date : '',
+                                exp.description,
+                                exp.amount
+                            ]);
+                        });
+                        const dayExpenseTotal = dayData.expenses.reduce((sum, exp) => {
+                            return sum + parseFloat(exp.amount || 0);
+                        }, 0);
+                        expenseData.push([
+                            '',
+                            `Tổng ${dayData.date}`,
+                            dayExpenseTotal
+                        ]);
+                        expenseData.push([]);
+                    }
+                });
+
+                expenseData.push([]);
+                expenseData.push(['', 'TỔNG CHI PHÍ THÁNG', monthlyTotals.expenseTotal]);
+
+                const wsExpense = XLSX.utils.aoa_to_sheet(expenseData);
+                wsExpense['!cols'] = [
+                    { wch: 12 },
+                    { wch: 35 },
+                    { wch: 15 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsExpense, 'Chi tiết chi phí');
+                
+                const filename = `BaoCao_${selectedBranch}_${selectedDate.substring(0, 7)}.xlsx`;
+                XLSX.writeFile(wb, filename);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-800">
+                                    📊 Báo cáo tháng {selectedDate.substring(5, 7)}/{selectedDate.substring(0, 4)}
+                                </h2>
+                                <h3 className="text-lg text-gray-600 mt-1">
+                                    Chi nhánh: {selectedBranch === 'nga-bay' ? '🏥 Ngã Bảy' : '🏥 Thốt Nốt'}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={exportToExcel}
+                                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition font-bold shadow-lg flex items-center gap-2"
+                            >
+                                📥 Xuất Excel
+                            </button>
+                        </div>
+
+                        {/* Monthly Summary */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                            <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg border-l-4 border-green-500 shadow">
+                                <p className="text-sm text-green-700 font-semibold mb-1">💰 Tổng tiền khám</p>
+                                <p className="text-3xl font-bold text-green-600">{monthlyTotals.examTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg border-l-4 border-blue-500 shadow">
+                                <p className="text-sm text-blue-700 font-semibold mb-1">👨‍⚕️ Lương bác sĩ</p>
+                                <p className="text-3xl font-bold text-blue-600">{monthlyTotals.doctorTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-6 rounded-lg border-l-4 border-orange-500 shadow">
+                                <p className="text-sm text-orange-700 font-semibold mb-1">💸 Chi phí</p>
+                                <p className="text-3xl font-bold text-orange-600">{monthlyTotals.expenseTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-lg border-l-4 border-purple-500 shadow">
+                                <p className="text-sm text-purple-700 font-semibold mb-1">💊 Tiền thuốc</p>
+                                <p className="text-3xl font-bold text-purple-600">{monthlyTotals.medicineTotal.toLocaleString()}k</p>
+                            </div>
+                            <div className={`p-6 rounded-lg border-l-4 shadow ${monthlyTotals.netTotal >= 0 ? 'bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-500' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-500'}`}>
+                                <p className={`text-sm font-semibold mb-1 ${monthlyTotals.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>💵 Còn lại</p>
+                                <p className={`text-3xl font-bold ${monthlyTotals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                    {monthlyTotals.netTotal.toLocaleString()}k
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Daily Details Table */}
+                        <div className="overflow-x-auto">
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gradient-to-r from-gray-700 to-gray-800 text-white">
+                                        <th className="border border-gray-600 p-3 text-left">📅 Ngày</th>
+                                        <th className="border border-gray-600 p-3 text-right">💰 Tiền khám</th>
+                                        <th className="border border-gray-600 p-3 text-right">👨‍⚕️ Lương BS</th>
+                                        <th className="border border-gray-600 p-3 text-right">💸 Chi phí</th>
+                                        <th className="border border-gray-600 p-3 text-right">💊 Tiền thuốc</th>
+                                        <th className="border border-gray-600 p-3 text-right">💵 Còn lại</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedDays.length === 0 && (
+                                        <tr>
+                                            <td colSpan="6" className="border p-6 text-center text-gray-400">
+                                                Chưa có dữ liệu trong tháng này
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {sortedDays.map(([dateKey, dayData]) => {
+                                        const totals = calculateDayTotals(dayData);
+                                        return (
+                                            <tr key={dateKey} className="hover:bg-blue-50 transition">
+                                                <td className="border border-gray-300 p-3 font-semibold">{dayData.date}</td>
+                                                <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
+                                                    {totals.examTotal.toLocaleString()}k
+                                                </td>
+                                                <td className="border border-gray-300 p-3 text-right text-blue-600 font-semibold">
+                                                    {totals.doctorTotal.toLocaleString()}k
+                                                </td>
+                                                <td className="border border-gray-300 p-3 text-right text-orange-600 font-semibold">
+                                                    {totals.expenseTotal.toLocaleString()}k
+                                                </td>
+                                                <td className="border border-gray-300 p-3 text-right text-purple-600 font-semibold">
+                                                    {totals.medicineTotal.toLocaleString()}k
+                                                </td>
+                                                <td className={`border border-gray-300 p-3 text-right font-bold ${totals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {totals.netTotal.toLocaleString()}k
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {sortedDays.length > 0 && (
+                                        <tr className="bg-gray-100 font-bold">
+                                            <td className="border border-gray-300 p-3">TỔNG CỘNG</td>
+                                            <td className="border border-gray-300 p-3 text-right text-green-600">
+                                                {monthlyTotals.examTotal.toLocaleString()}k
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-blue-600">
+                                                {monthlyTotals.doctorTotal.toLocaleString()}k
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-orange-600">
+                                                {monthlyTotals.expenseTotal.toLocaleString()}k
+                                            </td>
+                                            <td className="border border-gray-300 p-3 text-right text-purple-600">
+                                                {monthlyTotals.medicineTotal.toLocaleString()}k
+                                            </td>
+                                            <td className={`border border-gray-300 p-3 text-right ${monthlyTotals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {monthlyTotals.netTotal.toLocaleString()}k
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Render App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>

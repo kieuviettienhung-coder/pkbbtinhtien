@@ -1014,7 +1014,7 @@
             });
 
             const calculateMonthTotals = (monthData) => {
-                let examTotal = 0, doctorTotal = 0, expenseTotal = 0, medicineTotal = 0, totalCases = 0;
+                let examTotal = 0, doctorTotal = 0, expenseTotal = 0, medicineTotal = 0, totalCases = 0, zeroCases = 0;
 
                 monthData.forEach(dayData => {
                     examTotal += Object.entries(dayData.examinations || {})
@@ -1040,6 +1040,9 @@
                         .reduce((sum, [price, count]) => {
                             return sum + parseInt(count);
                         }, 0);
+                    
+                    // Đếm số ca 0 đồng
+                    zeroCases += parseInt(dayData.examinations?.['0'] || 0);
                 });
 
                 return {
@@ -1048,6 +1051,7 @@
                     expenseTotal,
                     medicineTotal,
                     totalCases,
+                    zeroCases,
                     netTotal: examTotal - doctorTotal - expenseTotal - medicineTotal
                 };
             };
@@ -1063,8 +1067,9 @@
                 expenseTotal: acc.expenseTotal + month.expenseTotal,
                 medicineTotal: acc.medicineTotal + month.medicineTotal,
                 totalCases: acc.totalCases + month.totalCases,
+                zeroCases: acc.zeroCases + month.zeroCases,
                 netTotal: acc.netTotal + month.netTotal
-            }), { examTotal: 0, doctorTotal: 0, expenseTotal: 0, medicineTotal: 0, totalCases: 0, netTotal: 0 });
+            }), { examTotal: 0, doctorTotal: 0, expenseTotal: 0, medicineTotal: 0, totalCases: 0, zeroCases: 0, netTotal: 0 });
 
             const exportYearlyToExcel = () => {
                 const wb = XLSX.utils.book_new();
@@ -1074,14 +1079,15 @@
                     [`Báo cáo năm ${year}`],
                     [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
                     [],
-                    ['Tháng', 'Tiền khám (k)', 'Số ca', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
+                    ['Tháng', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
                 ];
 
-                monthlyTotals.forEach(({ month, examTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, netTotal }) => {
+                monthlyTotals.forEach(({ month, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, netTotal }) => {
                     data.push([
                         `Tháng ${parseInt(month)}`,
                         examTotal,
                         totalCases,
+                        zeroCases,
                         doctorTotal,
                         expenseTotal,
                         medicineTotal,
@@ -1090,17 +1096,18 @@
                 });
 
                 data.push([]);
-                data.push(['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal]);
+                data.push(['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal]);
 
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 ws['!cols'] = [
-                    { wch: 12 },
-                    { wch: 15 },
-                    { wch: 10 },
-                    { wch: 15 },
-                    { wch: 15 },
-                    { wch: 15 },
-                    { wch: 15 }
+                    { wch: 12 },  // Tháng
+                    { wch: 15 },  // Tiền khám
+                    { wch: 10 },  // Số ca
+                    { wch: 10 },  // Số ca 0đ
+                    { wch: 15 },  // Lương BS
+                    { wch: 15 },  // Chi phí
+                    { wch: 15 },  // Tiền thuốc
+                    { wch: 15 }   // Còn lại
                 ];
 
                 XLSX.utils.book_append_sheet(wb, ws, `Năm ${year}`);
@@ -1951,7 +1958,7 @@
                     [`Báo cáo tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
                     [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
                     [],
-                    ['Ngày', 'Tiền khám (k)', 'Số ca', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
+                    ['Ngày', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
                 ];
 
                 sortedDays.forEach(([dateKey, dayData]) => {
@@ -1960,10 +1967,14 @@
                         return sum + parseInt(count || 0);
                     }, 0);
                     
+                    // Đếm số ca 0 đồng
+                    const zeroCases = parseInt(dayData.examinations?.['0'] || 0);
+                    
                     summaryData.push([
                         dayData.date,
                         totals.examTotal,
                         totalCases,
+                        zeroCases,
                         totals.doctorTotal,
                         totals.expenseTotal,
                         totals.medicineTotal,
@@ -1979,17 +1990,23 @@
                     }, 0);
                 }, 0);
                 
-                summaryData.push(['TỔNG', monthlyTotals.examTotal, totalCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal]);
+                // Tổng số ca 0 đồng cả tháng
+                const totalZeroCasesMonth = sortedDays.reduce((sum, [dateKey, dayData]) => {
+                    return sum + parseInt(dayData.examinations?.['0'] || 0);
+                }, 0);
+                
+                summaryData.push(['TỔNG', monthlyTotals.examTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal]);
 
                 const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
                 wsSummary['!cols'] = [
-                    { wch: 12 },
-                    { wch: 15 },
-                    { wch: 10 },
-                    { wch: 15 },
-                    { wch: 15 },
-                    { wch: 15 },
-                    { wch: 15 }
+                    { wch: 12 },  // Ngày
+                    { wch: 15 },  // Tiền khám
+                    { wch: 10 },  // Số ca
+                    { wch: 10 },  // Số ca 0đ
+                    { wch: 15 },  // Lương BS
+                    { wch: 15 },  // Chi phí
+                    { wch: 15 },  // Tiền thuốc
+                    { wch: 15 }   // Còn lại
                 ];
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng hợp');
 

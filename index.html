@@ -70,63 +70,10 @@
         }
         const db = firebase.database();
 
-        // ===== REMOTE KILL SWITCH =====
-        // Kiểm tra app có được phép chạy không (chỉ áp dụng cho file CŨ)
-        const CURRENT_APP_VERSION = '2.0.0'; // Version của file này
-        db.ref('settings/appEnabled').once('value', (snapshot) => {
-            const isEnabled = snapshot.val();
-            
-            // Hàm so sánh version
-            const compareVersions = (v1, v2) => {
-                const parts1 = v1.split('.').map(Number);
-                const parts2 = v2.split('.').map(Number);
-                for (let i = 0; i < 3; i++) {
-                    if (parts1[i] > parts2[i]) return 1;
-                    if (parts1[i] < parts2[i]) return -1;
-                }
-                return 0;
-            };
-            
-            if (isEnabled === false) {
-                // App bị khóa - NHƯNG cho phép file v2.0.0+
-                if (compareVersions(CURRENT_APP_VERSION, '2.0.0') >= 0) {
-                    // File mới v2.0.0+ → Cho phép vào
-                    console.log('✅ File mới v' + CURRENT_APP_VERSION + ' - Không bị khóa');
-                } else {
-                    // File cũ < v2.0.0 → Bị khóa
-                    document.body.innerHTML = `
-                        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <div style="background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 500px; text-align: center;">
-                                <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
-                                <h1 style="color: #e53e3e; font-size: 32px; margin-bottom: 10px;">Phiên bản cũ đã bị khóa</h1>
-                                <p style="color: #4a5568; font-size: 18px; margin-bottom: 30px;">Vui lòng cập nhật lên phiên bản mới nhất</p>
-                                <div style="background: #fff5f5; border: 2px solid #feb2b2; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
-                                    <p style="color: #742a2a; font-size: 14px; margin: 0;">
-                                        <strong>📞 Liên hệ Admin</strong><br/>
-                                        để lấy file phiên bản mới
-                                    </p>
-                                </div>
-                                <p style="color: #718096; font-size: 12px;">Phòng Khám Bách Bảo © 2025</p>
-                            </div>
-                        </div>
-                    `;
-                    throw new Error('Old app version locked by admin');
-                }
-            } else if (isEnabled === null) {
-                // Lần đầu chạy, tự động set = true
-                db.ref('settings/appEnabled').set(true);
-            }
-        });
-
         // Default price levels
         const DEFAULT_PRICE_LEVELS = [0, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 260, 280, 300, 320];
 
         function App() {
-            // ===== VERSION CONTROL =====
-            const APP_VERSION = '2.0.0'; // Tăng số này khi có bản mới
-            const [versionBlocked, setVersionBlocked] = useState(false);
-            const [requiredVersion, setRequiredVersion] = useState('');
-            
             const [user, setUser] = useState(null);
             const [userRole, setUserRole] = useState(null); // 'admin' or 'staff'
             const [allowedBranch, setAllowedBranch] = useState(null); // 'nga-bay', 'thot-not', or 'all'
@@ -203,23 +150,6 @@
 
             // Load passwords from Firebase on mount
             useEffect(() => {
-                // Kiểm tra và tự động set minVersion nếu chưa có
-                db.ref('settings_v2/minVersion').once('value', (snapshot) => {
-                    if (!snapshot.exists()) {
-                        // Chưa có minVersion → Tự động set = APP_VERSION
-                        db.ref('settings_v2/minVersion').set(APP_VERSION);
-                        console.log('✅ Đã tự động set minVersion =', APP_VERSION);
-                    } else {
-                        // Đã có minVersion → Kiểm tra
-                        const minVersion = snapshot.val();
-                        if (compareVersions(APP_VERSION, minVersion) < 0) {
-                            setVersionBlocked(true);
-                            setRequiredVersion(minVersion);
-                            return;
-                        }
-                    }
-                });
-
                 db.ref('settings_v2/adminPassword').once('value', (snapshot) => {
                     if (snapshot.val()) {
                         setAdminPassword(snapshot.val());
@@ -246,17 +176,6 @@
                     }
                 });
             }, []);
-
-            // Function to compare versions (returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2)
-            const compareVersions = (v1, v2) => {
-                const parts1 = v1.split('.').map(Number);
-                const parts2 = v2.split('.').map(Number);
-                for (let i = 0; i < 3; i++) {
-                    if (parts1[i] > parts2[i]) return 1;
-                    if (parts1[i] < parts2[i]) return -1;
-                }
-                return 0;
-            };
 
             const changePassword = async () => {
                 let passwordType = 'admin';
@@ -372,72 +291,6 @@
                 } catch (error) {
                     console.error('Error changing password:', error);
                     alert('❌ Lỗi khi đổi mật khẩu: ' + error.message);
-                }
-            };
-
-            const updateMinVersion = async () => {
-                if (userRole !== 'admin') {
-                    alert('❌ Chỉ Admin mới có quyền cập nhật version!');
-                    return;
-                }
-
-                const currentMinVersion = await db.ref('settings_v2/minVersion').once('value').then(s => s.val() || '1.0.0');
-                
-                let message = '🔄 CẬP NHẬT PHIÊN BẢN TỐI THIỂU\n\n';
-                message += `📱 File hiện tại: ${APP_VERSION}\n`;
-                message += `🔒 Phiên bản tối thiểu hiện tại: ${currentMinVersion}\n\n`;
-                message += '─────────────────────────────\n\n';
-                message += '⚠️ Chặn tất cả file cũ?\n\n';
-                message += 'Nhập "YES" để cập nhật minVersion = ' + APP_VERSION + '\n';
-                message += '(Tất cả file < ' + APP_VERSION + ' sẽ bị chặn)';
-
-                const confirm = prompt(message);
-                
-                if (confirm === 'YES') {
-                    try {
-                        await db.ref('settings_v2/minVersion').set(APP_VERSION);
-                        alert(`✅ Đã cập nhật!\n\nminVersion = ${APP_VERSION}\n\nTất cả file cũ hơn ${APP_VERSION} giờ sẽ bị chặn.`);
-                    } catch (error) {
-                        alert('❌ Lỗi: ' + error.message);
-                    }
-                } else {
-                    alert('❌ Đã hủy');
-                }
-            };
-
-            const toggleAppEnabled = async () => {
-                if (userRole !== 'admin') {
-                    alert('❌ Chỉ Admin mới có quyền khóa app!');
-                    return;
-                }
-
-                const currentStatus = await db.ref('settings/appEnabled').once('value').then(s => s.val());
-                
-                if (currentStatus === false) {
-                    // Đang khóa → Mở
-                    const confirm = window.confirm('🔓 MỞ KHÓA TẤT CẢ APP?\n\nTất cả file (cũ và mới) sẽ hoạt động trở lại.');
-                    if (confirm) {
-                        await db.ref('settings/appEnabled').set(true);
-                        alert('✅ Đã mở khóa! Tất cả app có thể vào lại.');
-                    }
-                } else {
-                    // Đang mở → Khóa
-                    let message = '🔒 KHÓA TẤT CẢ APP CŨ?\n\n';
-                    message += '⚠️ CẢNH BÁO NGHIÊM TRỌNG:\n\n';
-                    message += '• TẤT CẢ file cũ sẽ BỊ KHÓA NGAY LẬP TỨC\n';
-                    message += '• File hiện tại (v' + APP_VERSION + ') VẪN HOẠT ĐỘNG\n';
-                    message += '• Dùng để BUỘC tất cả phải update\n\n';
-                    message += '─────────────────────────\n\n';
-                    message += 'Nhập "KHOA" (viết hoa) để xác nhận:';
-                    
-                    const confirm = prompt(message);
-                    
-                    if (confirm === 'KHOA') {
-                        await db.ref('settings/appEnabled').set(false);
-                        alert('🔒 ĐÃ KHÓA!\n\nTất cả file cũ giờ không thể mở được.\n\nĐể mở lại: Click nút "🔒 Khóa app cũ" lần nữa.');
-                    } else {
-                        alert('❌ Đã hủy');
-                    }
                 }
             };
 
@@ -659,54 +512,6 @@
                 };
             };
 
-            // Version Blocked Screen
-            if (versionBlocked) {
-                return (
-                    <div className="flex items-center justify-center min-h-screen px-4 bg-red-50">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full border-4 border-red-500">
-                            <div className="text-center mb-6">
-                                <div className="text-6xl mb-4">🚫</div>
-                                <h1 className="text-3xl font-bold text-red-600 mb-2">
-                                    Phiên bản cũ
-                                </h1>
-                                <p className="text-gray-700 text-lg">
-                                    Vui lòng cập nhật phiên bản mới
-                                </p>
-                            </div>
-                            
-                            <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 mb-6">
-                                <div className="space-y-2 text-sm">
-                                    <p className="text-gray-700">
-                                        <span className="font-semibold">Phiên bản hiện tại:</span>
-                                        <span className="ml-2 text-red-600 font-mono">{APP_VERSION}</span>
-                                    </p>
-                                    <p className="text-gray-700">
-                                        <span className="font-semibold">Phiên bản yêu cầu:</span>
-                                        <span className="ml-2 text-green-600 font-mono">{requiredVersion}</span>
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
-                                <p className="text-sm text-gray-700">
-                                    <span className="font-semibold text-yellow-700">⚠️ Hướng dẫn:</span><br/>
-                                    1. Liên hệ Admin để lấy file mới<br/>
-                                    2. Tải file <code className="bg-gray-200 px-1 rounded">clinic-final.html</code> mới nhất<br/>
-                                    3. Mở file mới trong trình duyệt<br/>
-                                    4. Xóa file cũ để tránh nhầm lẫn
-                                </p>
-                            </div>
-
-                            <div className="mt-6 text-center">
-                                <p className="text-xs text-gray-500">
-                                    Phòng Khám Bách Bảo - Version Control
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
             // Login Screen
             if (showLogin) {
                 return (
@@ -764,20 +569,13 @@
                                             🔒 Khóa app cũ
                                         </button>
                                         <button
-                                            onClick={updateMinVersion}
-                                            className="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition font-semibold"
-                                            title="Chặn phiên bản cũ"
-                                        >
-                                            🔄 Cập nhật version
-                                        </button>
-                                        <button
                                             onClick={managePasswords}
                                             className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition font-semibold"
                                         >
                                             👥 Quản lý tài khoản
                                         </button>
                                     </>
-                                )}
+                                )}}
                                 <button
                                     onClick={handleLogout}
                                     className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition font-semibold"
@@ -1832,63 +1630,78 @@
                             const total = (parseFloat(medicine.quantity || 0) * parseFloat(medicine.price || 0));
                             
                             return (
-                                <div key={index} className="bg-gray-50 p-3 rounded-lg">
-                                    <div className="flex gap-3 items-start">
-                                        <div className="flex-1 relative">
+                                <div key={index} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                    {/* Tên thuốc - Hiển thị riêng trên mobile */}
+                                    <div className="mb-2 relative">
+                                        <input
+                                            type="text"
+                                            value={medicine.name}
+                                            onChange={(e) => {
+                                                updateMedicine(index, 'name', e.target.value);
+                                                setShowSuggestions({ ...showSuggestions, [index]: true });
+                                            }}
+                                            onFocus={() => setShowSuggestions({ ...showSuggestions, [index]: true })}
+                                            onBlur={() => setTimeout(() => setShowSuggestions({ ...showSuggestions, [index]: false }), 200)}
+                                            placeholder="Tên thuốc..."
+                                            disabled={readOnly}
+                                            className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 capitalize font-medium ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                        />
+                                        {suggestions.length > 0 && !readOnly && (
+                                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                                {suggestions.map((suggestion, i) => (
+                                                    <div
+                                                        key={i}
+                                                        onClick={() => selectMedicine(index, suggestion)}
+                                                        className="px-4 py-2 hover:bg-purple-50 cursor-pointer"
+                                                    >
+                                                        <div className="font-semibold capitalize text-sm">{suggestion.name}</div>
+                                                        <div className="text-xs text-green-600 font-bold">{suggestion.price}k</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {/* Số lượng, Giá, Tổng tiền - Hiển thị trên 1 hàng */}
+                                    <div className="flex gap-2 items-center">
+                                        <div className="flex-1">
+                                            <label className="text-xs text-gray-600 block mb-1">Số lượng</label>
                                             <input
-                                                type="text"
-                                                value={medicine.name}
-                                                onChange={(e) => {
-                                                    updateMedicine(index, 'name', e.target.value);
-                                                    setShowSuggestions({ ...showSuggestions, [index]: true });
-                                                }}
-                                                onFocus={() => setShowSuggestions({ ...showSuggestions, [index]: true })}
-                                                onBlur={() => setTimeout(() => setShowSuggestions({ ...showSuggestions, [index]: false }), 200)}
-                                                placeholder="Tên thuốc..."
+                                                type="number"
+                                                value={medicine.quantity}
+                                                onChange={(e) => updateMedicine(index, 'quantity', e.target.value)}
+                                                placeholder="SL"
                                                 disabled={readOnly}
-                                                className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 capitalize ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-center ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                             />
-                                            {suggestions.length > 0 && !readOnly && (
-                                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                                    {suggestions.map((suggestion, i) => (
-                                                        <div
-                                                            key={i}
-                                                            onClick={() => selectMedicine(index, suggestion)}
-                                                            className="px-4 py-2 hover:bg-purple-50 cursor-pointer"
-                                                        >
-                                                            <div className="font-semibold capitalize text-sm">{suggestion.name}</div>
-                                                            <div className="text-xs text-green-600 font-bold">{suggestion.price}k</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
                                         </div>
-                                        <input
-                                            type="number"
-                                            value={medicine.quantity}
-                                            onChange={(e) => updateMedicine(index, 'quantity', e.target.value)}
-                                            placeholder="SL"
-                                            disabled={readOnly}
-                                            className={`w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-center ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                        />
-                                        <input
-                                            type="number"
-                                            value={medicine.price}
-                                            onChange={(e) => updateMedicine(index, 'price', e.target.value)}
-                                            placeholder="Giá"
-                                            disabled={readOnly}
-                                            className={`w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                        />
-                                        <div className="w-28 px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-center font-semibold text-purple-700">
-                                            {total.toLocaleString()}k
+                                        <div className="flex-1">
+                                            <label className="text-xs text-gray-600 block mb-1">Giá (k)</label>
+                                            <input
+                                                type="number"
+                                                value={medicine.price}
+                                                onChange={(e) => updateMedicine(index, 'price', e.target.value)}
+                                                placeholder="Giá"
+                                                disabled={readOnly}
+                                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                            />
+                                        </div>
+                                        <div className="flex-1">
+                                            <label className="text-xs text-gray-600 block mb-1">Tổng</label>
+                                            <div className="w-full px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-center font-semibold text-purple-700">
+                                                {total.toLocaleString()}k
+                                            </div>
                                         </div>
                                         {!readOnly && (
-                                            <button
-                                                onClick={() => removeMedicine(index)}
-                                                className="bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 transition font-bold"
-                                            >
-                                                ✕
-                                            </button>
+                                            <div className="flex-shrink-0">
+                                                <label className="text-xs text-transparent block mb-1">X</label>
+                                                <button
+                                                    onClick={() => removeMedicine(index)}
+                                                    className="bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 transition font-bold"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 </div>

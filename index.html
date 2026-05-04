@@ -72,7 +72,7 @@
 
         // Telegram Config
         const TELEGRAM = {
-            botToken: '8223316349:AAF5nm35vokxZfYJh4Wcdz_iuSItyN_E5uU',
+            botToken: '8768976912:AAF0_qySQt8QBCv-G6WW1yxp7YhBBLPDEWw',
             chatId: '5718070140'
         };
 
@@ -561,17 +561,10 @@
                     });
                     alert('✅ Đã lưu dữ liệu thành công!');
 
-                    // Auto gửi báo cáo Telegram
+                    // Auto gửi báo cáo Telegram (chỉ chi nhánh đang lưu)
                     try {
-                        const branches = [
-                            { key: 'nga-bay', name: '🏥 Ngã Bảy' },
-                            { key: 'thot-not', name: '🏥 Thốt Nốt' }
-                        ];
-                        const branchesData = [];
-                        for (const b of branches) {
-                            const snap = await db.ref(`daily_v2/${b.key}/${dateKey}`).once('value');
-                            branchesData.push({ name: b.name, data: snap.val() });
-                        }
+                        const branchName = selectedBranch === 'nga-bay' ? '🏥 Ngã Bảy' : '🏥 Thốt Nốt';
+                        const branchesData = [{ name: branchName, data: { ...dailyData, branch: selectedBranch, date: selectedDate } }];
                         const msg = buildDailyReport(selectedDate, branchesData);
                         await sendTelegram(msg);
                     } catch (tgErr) {

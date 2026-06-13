@@ -952,6 +952,7 @@
                                 >
                                     {isReadOnly ? '🔒 Chế độ xem' : '💾 Lưu dữ liệu (Lưu tạm)'}
                                 </button>
+                                {userRole === 'admin' && (
                                 <button
                                     onClick={saveData}
                                     disabled={isReadOnly}
@@ -961,8 +962,9 @@
                                             : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 hover:scale-105'
                                     }`}
                                 >
-                                    {isReadOnly ? '🔒 Chế độ xem - Không thể lưu' : userRole === 'admin' ? '📨 Gửi báo cáo cuối ngày' : '✅ Lưu dữ liệu'}
+                                    {isReadOnly ? '🔒 Chế độ xem - Không thể lưu' : '📨 Gửi báo cáo cuối ngày'}
                                 </button>
+                                )}
                             </div>
                         </div>
                     )}

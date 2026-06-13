@@ -258,72 +258,7 @@
                 });
             }, []);
 
-            // ===== TỰ ĐỘNG GỬI BÁO CÁO TELEGRAM LÚC 20H MỖI TỐI =====
-            useEffect(() => {
-                const AUTO_REPORT_HOUR = 20; // 20:00 tối
 
-                const checkAndSendAutoReport = async () => {
-                    try {
-                        const now = new Date();
-                        const hour = now.getHours();
-                        
-                        // Chỉ gửi từ 20h trở đi
-                        if (hour < AUTO_REPORT_HOUR) return;
-
-                        // Tạo dateKey cho hôm nay
-                        const y = now.getFullYear();
-                        const m = String(now.getMonth() + 1).padStart(2, '0');
-                        const d = String(now.getDate()).padStart(2, '0');
-                        const todayKey = `${y}${m}${d}`;
-                        const todayStr = `${y}-${m}-${d}`;
-
-                        // Kiểm tra đã gửi chưa (tránh gửi trùng)
-                        const sentSnap = await db.ref(`auto_report_sent/${todayKey}`).once('value');
-                        if (sentSnap.val()) return; // Đã gửi rồi, bỏ qua
-
-                        // Đánh dấu đang gửi (claim lock để tránh nhiều tab gửi cùng lúc)
-                        const claimRef = db.ref(`auto_report_sent/${todayKey}`);
-                        const claimResult = await claimRef.transaction((current) => {
-                            if (current) return; // Đã có người gửi, abort
-                            return { sentAt: new Date().toISOString(), sentBy: 'auto' };
-                        });
-
-                        if (!claimResult.committed) return; // Có tab khác đã claim
-
-                        // Lấy dữ liệu 2 chi nhánh
-                        const branches = [
-                            { key: 'nga-bay', name: '🏥 Ngã Bảy' },
-                            { key: 'thot-not', name: '🏥 Thốt Nốt' }
-                        ];
-                        const branchesData = [];
-                        for (const b of branches) {
-                            const snap = await db.ref(`daily_v2/${b.key}/${todayKey}`).once('value');
-                            branchesData.push({ name: b.name, data: snap.val() });
-                        }
-
-                        // Build & gửi báo cáo
-                        const msg = buildDailyReport(todayStr, branchesData);
-                        const ok = await sendTelegram(msg + '\n\n🤖 _Báo cáo tự động lúc 20h_');
-                        
-                        if (!ok) {
-                            // Gửi thất bại → xóa claim để thử lại
-                            await claimRef.remove();
-                        }
-
-                        console.log('[Auto Report]', ok ? '✅ Đã gửi' : '❌ Thất bại', todayKey);
-                    } catch (err) {
-                        console.error('[Auto Report] Lỗi:', err);
-                    }
-                };
-
-                // Kiểm tra ngay khi mở app
-                checkAndSendAutoReport();
-
-                // Kiểm tra mỗi 60 giây
-                const interval = setInterval(checkAndSendAutoReport, 60 * 1000);
-
-                return () => clearInterval(interval);
-            }, []);
 
             const changePassword = async () => {
                 let passwordType = 'admin';

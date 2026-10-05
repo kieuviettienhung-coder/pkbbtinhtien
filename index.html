@@ -1543,13 +1543,24 @@
                             </div>
                         </details>
                     </div>
-                    {activeModalPrice && (
+                    {activeModalPrice !== null && (
                         <PatientDetailsModal 
                             price={activeModalPrice}
                             patients={patientDetails[activeModalPrice] || []}
                             onSave={(patients) => {
-                                const newDetails = { ...patientDetails, [activeModalPrice]: patients };
+                                // Filter out completely empty rows
+                                const validPatients = patients.filter(p => (p.name && p.name.trim()) || (p.prescriptionNo && p.prescriptionNo.trim()));
+                                const newDetails = { ...patientDetails, [activeModalPrice]: validPatients };
                                 onPatientDetailsChange(newDetails);
+                                
+                                // Auto update examination count based on valid patients
+                                const count = validPatients.length;
+                                const newExams = { 
+                                    ...examinations, 
+                                    [activeModalPrice]: count > 0 ? count.toString() : '' 
+                                };
+                                onChange(newExams);
+                                
                                 setActiveModalPrice(null);
                             }}
                             onClose={() => setActiveModalPrice(null)}

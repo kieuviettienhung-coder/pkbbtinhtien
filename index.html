@@ -8,9 +8,6 @@
     <meta name="format-detection" content="telephone=no">
     <title>Phòng Khám Bách Bảo - Quản Lý Thu Chi</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone@7.26.2/babel.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -124,6 +121,21 @@
                 msg += `💊 Tiền thuốc: ${fmt(medicine)}\n`;
                 msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
 
+                if (data.patientDetails) {
+                    let detailMsgs = [];
+                    Object.entries(data.patientDetails).forEach(([price, patients]) => {
+                        if (Array.isArray(patients) && patients.length > 0) {
+                            const validPatients = patients.filter(p => p.name || p.prescriptionNo);
+                            if (validPatients.length > 0) {
+                                detailMsgs.push(`[${price}k]: ` + validPatients.map(p => `${p.name} (Toa ${p.prescriptionNo})`).join(', '));
+                            }
+                        }
+                    });
+                    if (detailMsgs.length) {
+                        msg += `   ┗ Bệnh nhân: ${detailMsgs.join('; ')}\n`;
+                    }
+                }
+
                 if (Array.isArray(data.doctorFees) && data.doctorFees.length > 0) {
                     const details = data.doctorFees.filter(f => f.doctor && parseFloat(f.amount) > 0).map(f => `${f.doctor} ${fmt(parseFloat(f.amount))}`);
                     if (details.length) msg += `   ┗ ${details.join(', ')}\n`;
@@ -166,6 +178,7 @@
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
             const [dailyData, setDailyData] = useState({
                 examinations: {},
+                patientDetails: {},
                 expenses: [],
                 doctorFees: [],
                 medicines: []
@@ -422,6 +435,7 @@
                     } else {
                         setDailyData({
                             examinations: {},
+                            patientDetails: {},
                             expenses: [],
                             doctorFees: []
                         });
@@ -819,7 +833,9 @@
                             {/* Examination Fees */}
                             <ExaminationSection 
                                 examinations={dailyData.examinations || {}}
+                                patientDetails={dailyData.patientDetails || {}}
                                 onChange={(exams) => setDailyData({...dailyData, examinations: exams})}
+                                onPatientDetailsChange={(details) => setDailyData({...dailyData, patientDetails: details})}
                                 readOnly={isReadOnly}
                                 customPrices={customPrices}
                                 saveCustomPrices={saveCustomPrices}
@@ -1370,9 +1386,10 @@
         }
 
         // Examination Section with Add Custom Price
-        function ExaminationSection({ examinations, onChange, readOnly = false, customPrices = [], saveCustomPrices }) {
+        function ExaminationSection({ examinations, patientDetails = {}, onChange, onPatientDetailsChange, readOnly = false, customPrices = [], saveCustomPrices }) {
             const [priceLevels, setPriceLevels] = useState([]);
             const [newPrice, setNewPrice] = useState('');
+            const [activeModalPrice, setActiveModalPrice] = useState(null);
 
             // Rebuild price levels when examinations or customPrices change
             useEffect(() => {
@@ -1435,15 +1452,24 @@
                                         <label className="text-xs font-semibold text-gray-600">
                                             {price}k
                                         </label>
-                                        {!DEFAULT_PRICE_LEVELS.includes(price) && customPrices.includes(price) && !readOnly && (
-                                            <button
-                                                onClick={() => removePrice(price)}
-                                                className="text-red-500 hover:text-red-700 text-xs"
-                                                title="Xóa mức giá này"
+                                        <div className="flex gap-1">
+                                            <button 
+                                                onClick={() => setActiveModalPrice(price)}
+                                                className="text-blue-500 hover:text-blue-700 text-xs px-1"
+                                                title="Nhập thông tin toa"
                                             >
-                                                ✕
+                                                📝
                                             </button>
-                                        )}
+                                            {!DEFAULT_PRICE_LEVELS.includes(price) && customPrices.includes(price) && !readOnly && (
+                                                <button
+                                                    onClick={() => removePrice(price)}
+                                                    className="text-red-500 hover:text-red-700 text-xs px-1"
+                                                    title="Xóa mức giá này"
+                                                >
+                                                    ✕
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                     <input
                                         type="number"
@@ -1516,6 +1542,91 @@
                                 </div>
                             </div>
                         </details>
+                    </div>
+                    {activeModalPrice && (
+                        <PatientDetailsModal 
+                            price={activeModalPrice}
+                            patients={patientDetails[activeModalPrice] || []}
+                            onSave={(patients) => {
+                                const newDetails = { ...patientDetails, [activeModalPrice]: patients };
+                                onPatientDetailsChange(newDetails);
+                                setActiveModalPrice(null);
+                            }}
+                            onClose={() => setActiveModalPrice(null)}
+                            readOnly={readOnly}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        function PatientDetailsModal({ price, patients, onSave, onClose, readOnly }) {
+            const [localPatients, setLocalPatients] = useState(patients);
+
+            const addPatient = () => {
+                setLocalPatients([...localPatients, { name: '', prescriptionNo: '' }]);
+            };
+
+            const removePatient = (index) => {
+                setLocalPatients(localPatients.filter((_, i) => i !== index));
+            };
+
+            const updatePatient = (index, field, value) => {
+                const updated = [...localPatients];
+                updated[index][field] = value;
+                setLocalPatients(updated);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[80vh] flex flex-col shadow-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold text-gray-800">Danh sách bé - {price}k</h3>
+                            <button onClick={onClose} className="text-gray-500 text-2xl hover:text-gray-700">&times;</button>
+                        </div>
+                        <div className="overflow-y-auto flex-1 mb-4 space-y-3 pr-2">
+                            {localPatients.length === 0 && (
+                                <p className="text-gray-500 text-center italic py-4">Chưa có thông tin bé nào.</p>
+                            )}
+                            {localPatients.map((p, i) => (
+                                <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded border border-gray-200">
+                                    <input 
+                                        type="text"
+                                        placeholder="Tên bé"
+                                        value={p.name}
+                                        onChange={e => updatePatient(i, 'name', e.target.value)}
+                                        disabled={readOnly}
+                                        className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    />
+                                    <input 
+                                        type="text"
+                                        placeholder="STT Toa"
+                                        value={p.prescriptionNo}
+                                        onChange={e => updatePatient(i, 'prescriptionNo', e.target.value)}
+                                        disabled={readOnly}
+                                        className="w-24 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    />
+                                    {!readOnly && (
+                                        <button onClick={() => removePatient(i)} className="text-red-500 px-2 font-bold hover:text-red-700">✕</button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        {!readOnly && (
+                            <div className="flex gap-3">
+                                <button onClick={addPatient} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-200 transition">
+                                    ➕ Thêm bé
+                                </button>
+                                <button onClick={() => onSave(localPatients)} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition shadow">
+                                    💾 Lưu
+                                </button>
+                            </div>
+                        )}
+                        {readOnly && (
+                            <button onClick={onClose} className="w-full bg-gray-500 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition shadow">
+                                Đóng
+                            </button>
+                        )}
                     </div>
                 </div>
             );

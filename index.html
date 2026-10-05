@@ -834,8 +834,8 @@
                             <ExaminationSection 
                                 examinations={dailyData.examinations || {}}
                                 patientDetails={dailyData.patientDetails || {}}
-                                onChange={(exams) => setDailyData({...dailyData, examinations: exams})}
-                                onPatientDetailsChange={(details) => setDailyData({...dailyData, patientDetails: details})}
+                                onChange={(exams) => setDailyData(prev => ({...prev, examinations: exams}))}
+                                onPatientDetailsChange={(details) => setDailyData(prev => ({...prev, patientDetails: details}))}
                                 readOnly={isReadOnly}
                                 customPrices={customPrices}
                                 saveCustomPrices={saveCustomPrices}

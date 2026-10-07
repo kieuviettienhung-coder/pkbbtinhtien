@@ -1558,6 +1558,7 @@
                         <PatientDetailsModal 
                             price={activeModalPrice}
                             patients={patientDetails[activeModalPrice] || []}
+                            fullPatientDetails={patientDetails}
                             onSave={(patients) => {
                                 // Filter out completely empty rows
                                 const validPatients = patients.filter(p => (p.name && p.name.trim()) || (p.prescriptionNo && p.prescriptionNo.trim()));
@@ -1582,7 +1583,7 @@
             );
         }
 
-        function PatientDetailsModal({ price, patients, onSave, onClose, readOnly }) {
+        function PatientDetailsModal({ price, patients, fullPatientDetails, onSave, onClose, readOnly }) {
             const [localPatients, setLocalPatients] = useState(patients);
 
             const addPatient = () => {
@@ -1599,6 +1600,33 @@
                 setLocalPatients(updated);
             };
 
+            const getDuplicateInfo = (stt, currentIndex) => {
+                if (!stt || !stt.trim()) return null;
+                const trimmedSTT = stt.trim().toLowerCase();
+                
+                // Check in localPatients (same price)
+                for (let i = 0; i < localPatients.length; i++) {
+                    if (i !== currentIndex && localPatients[i].prescriptionNo && localPatients[i].prescriptionNo.trim().toLowerCase() === trimmedSTT) {
+                        return price; // Duplicated in current price
+                    }
+                }
+
+                // Check in other prices
+                for (const [otherPrice, otherPatients] of Object.entries(fullPatientDetails || {})) {
+                    if (otherPrice !== price.toString()) {
+                        if (Array.isArray(otherPatients)) {
+                            for (const op of otherPatients) {
+                                if (op.prescriptionNo && op.prescriptionNo.trim().toLowerCase() === trimmedSTT) {
+                                    return otherPrice;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return null;
+            };
+
             return (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[80vh] flex flex-col shadow-2xl">
@@ -1610,29 +1638,39 @@
                             {localPatients.length === 0 && (
                                 <p className="text-gray-500 text-center italic py-4">Chưa có thông tin bé nào.</p>
                             )}
-                            {localPatients.map((p, i) => (
-                                <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded border border-gray-200">
-                                    <input 
-                                        type="text"
-                                        placeholder="Tên bé"
-                                        value={p.name}
-                                        onChange={e => updatePatient(i, 'name', e.target.value)}
-                                        disabled={readOnly}
-                                        className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                    />
-                                    <input 
-                                        type="text"
-                                        placeholder="STT Toa"
-                                        value={p.prescriptionNo}
-                                        onChange={e => updatePatient(i, 'prescriptionNo', e.target.value)}
-                                        disabled={readOnly}
-                                        className="w-24 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                    />
-                                    {!readOnly && (
-                                        <button onClick={() => removePatient(i)} className="text-red-500 px-2 font-bold hover:text-red-700">✕</button>
-                                    )}
-                                </div>
-                            ))}
+                            {localPatients.map((p, i) => {
+                                const duplicatePrice = getDuplicateInfo(p.prescriptionNo, i);
+                                return (
+                                    <div key={i} className="flex flex-col gap-1">
+                                        <div className={`flex gap-2 items-center bg-gray-50 p-2 rounded border ${duplicatePrice ? 'border-red-400' : 'border-gray-200'}`}>
+                                            <input 
+                                                type="text"
+                                                placeholder="Tên bé"
+                                                value={p.name}
+                                                onChange={e => updatePatient(i, 'name', e.target.value)}
+                                                disabled={readOnly}
+                                                className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            />
+                                            <input 
+                                                type="text"
+                                                placeholder="STT Toa"
+                                                value={p.prescriptionNo}
+                                                onChange={e => updatePatient(i, 'prescriptionNo', e.target.value)}
+                                                disabled={readOnly}
+                                                className="w-24 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            />
+                                            {!readOnly && (
+                                                <button onClick={() => removePatient(i)} className="text-red-500 px-2 font-bold hover:text-red-700">✕</button>
+                                            )}
+                                        </div>
+                                        {duplicatePrice !== null && (
+                                            <p className="text-xs text-red-600 font-semibold px-2">
+                                                ⚠️ Trùng STT toa ở mức giá {duplicatePrice}k
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                         {!readOnly && (
                             <div className="flex gap-3">

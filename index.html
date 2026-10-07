@@ -1677,7 +1677,14 @@
                                 <button onClick={addPatient} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-200 transition">
                                     ➕ Thêm bé
                                 </button>
-                                <button onClick={() => onSave(localPatients)} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition shadow">
+                                <button 
+                                    onClick={() => {
+                                        const hasDuplicate = localPatients.some((p, i) => getDuplicateInfo(p.prescriptionNo, i) !== null);
+                                        if (!hasDuplicate) onSave(localPatients);
+                                    }} 
+                                    disabled={localPatients.some((p, i) => getDuplicateInfo(p.prescriptionNo, i) !== null)}
+                                    className={`flex-1 py-3 rounded-lg font-semibold transition shadow ${localPatients.some((p, i) => getDuplicateInfo(p.prescriptionNo, i) !== null) ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                                >
                                     💾 Lưu
                                 </button>
                             </div>

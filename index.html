@@ -93,10 +93,19 @@
             msg += `📅 Ngày: *${d[2]}/${d[1]}/${d[0]}*\n`;
             msg += '━━━━━━━━━━━━━━━━━━━━\n';
 
-            let gExam = 0, gDoctor = 0, gExpense = 0, gMedicine = 0, gCases = 0;
+            let gExam = 0, gDoctor = 0, gExpense = 0, gMedicine = 0, gCases = 0, gNet = 0;
             let hasData = false;
 
-            for (const { name, data } of branchesData) {
+            // Find Nga Bay's medicine total first so it can be added to Thot Not
+            let ngaBayMedicine = 0;
+            const nbBranch = branchesData.find(b => (b.key === 'nga-bay') || (b.name && b.name.includes('Ngã Bảy')));
+            if (nbBranch && nbBranch.data && Array.isArray(nbBranch.data.medicines)) {
+                nbBranch.data.medicines.forEach(m => {
+                    ngaBayMedicine += parseFloat(m.quantity || 0) * parseFloat(m.price || 0);
+                });
+            }
+
+            for (const { key, name, data } of branchesData) {
                 if (!data || !data.examinations) {
                     msg += `\n${name}: 📭 Chưa có dữ liệu\n`;
                     continue;
@@ -111,14 +120,25 @@
                 if (Array.isArray(data.expenses)) data.expenses.forEach(e => expense += parseFloat(e.amount || 0));
                 if (Array.isArray(data.medicines)) data.medicines.forEach(m => medicine += parseFloat(m.quantity || 0) * parseFloat(m.price || 0));
 
-                const net = exam - doctor - expense - medicine;
+                const isThotNot = (key === 'thot-not') || (name && name.includes('Thốt Nốt'));
+                const isNgaBay = (key === 'nga-bay') || (name && name.includes('Ngã Bảy'));
+
+                const transferredFromNB = isThotNot ? ngaBayMedicine : 0;
+                const net = (exam - doctor - expense - medicine) + transferredFromNB;
                 const fmt = n => (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('vi-VN') + 'k';
 
                 msg += `\n${name}\n`;
                 msg += `💰 Tiền khám: ${fmt(exam)} (${cases} ca)\n`;
                 msg += `👨‍⚕️ Lương BS: ${fmt(doctor)}\n`;
                 msg += `💸 Chi phí: ${fmt(expense)}\n`;
-                msg += `💊 Tiền thuốc: ${fmt(medicine)}\n`;
+                if (isNgaBay) {
+                    msg += `💊 Tiền thuốc (chuyển về Thốt Nốt): ${fmt(medicine)}\n`;
+                } else {
+                    msg += `💊 Tiền thuốc tại quầy: ${fmt(medicine)}\n`;
+                }
+                if (isThotNot && transferredFromNB > 0) {
+                    msg += `📦 Thuốc nhận từ Ngã Bảy: +${fmt(transferredFromNB)}\n`;
+                }
                 msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
 
                 if (data.patientDetails) {
@@ -146,10 +166,10 @@
                 }
 
                 gExam += exam; gDoctor += doctor; gExpense += expense; gMedicine += medicine; gCases += cases;
+                gNet += net;
             }
 
             if (hasData && branchesData.length > 1) {
-                const gNet = gExam - gDoctor - gExpense - gMedicine;
                 const fmt = n => (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('vi-VN') + 'k';
                 msg += '\n━━━━━━━━━━━━━━━━━━━━\n';
                 msg += '📈 *TỔNG 2 CHI NHÁNH*\n';
@@ -186,6 +206,9 @@
             const [monthlyData, setMonthlyData] = useState({});
             const [monthlyMedicines, setMonthlyMedicines] = useState({});
             const [yearlyData, setYearlyData] = useState({});
+            const [ngaBayDailyMedicineTotal, setNgaBayDailyMedicineTotal] = useState(0);
+            const [ngaBayMonthlyData, setNgaBayMonthlyData] = useState({});
+            const [ngaBayYearlyData, setNgaBayYearlyData] = useState({});
             const [customPrices, setCustomPrices] = useState([]);
             const [showLogin, setShowLogin] = useState(true);
             const [adminPassword, setAdminPassword] = useState('123456');
@@ -396,8 +419,11 @@
             // Load data when date/branch changes
             useEffect(() => {
                 if (user) {
-                    loadDailyData();
+                    const cleanupDaily = loadDailyData();
                     loadCustomPrices();
+                    return () => {
+                        if (cleanupDaily) cleanupDaily();
+                    };
                 }
             }, [selectedBranch, selectedDate, user]);
 
@@ -437,12 +463,33 @@
                             examinations: {},
                             patientDetails: {},
                             expenses: [],
-                            doctorFees: []
+                            doctorFees: [],
+                            medicines: []
                         });
                     }
                 });
 
-                return () => dataRef.off();
+                let nbRef = null;
+                if (selectedBranch === 'thot-not') {
+                    nbRef = db.ref(`daily_v2/nga-bay/${dateKey}/medicines`);
+                    nbRef.on('value', (snapshot) => {
+                        const meds = snapshot.val() || [];
+                        let total = 0;
+                        if (Array.isArray(meds)) {
+                            meds.forEach(m => {
+                                total += parseFloat(m.quantity || 0) * parseFloat(m.price || 0);
+                            });
+                        }
+                        setNgaBayDailyMedicineTotal(total);
+                    });
+                } else {
+                    setNgaBayDailyMedicineTotal(0);
+                }
+
+                return () => {
+                    dataRef.off();
+                    if (nbRef) nbRef.off();
+                };
             };
 
             const loadMonthlyData = () => {
@@ -458,6 +505,19 @@
                     });
                     setMonthlyData(data);
                 });
+
+                if (selectedBranch === 'thot-not') {
+                    const nbRef = db.ref(`daily_v2/nga-bay`);
+                    nbRef.orderByKey().startAt(monthKey + '01').endAt(monthKey + '31').once('value', (snapshot) => {
+                        const data = {};
+                        snapshot.forEach((child) => {
+                            data[child.key] = child.val();
+                        });
+                        setNgaBayMonthlyData(data);
+                    });
+                } else {
+                    setNgaBayMonthlyData({});
+                }
             };
 
             const loadYearlyData = () => {
@@ -473,6 +533,19 @@
                     });
                     setYearlyData(data);
                 });
+
+                if (selectedBranch === 'thot-not') {
+                    const nbRef = db.ref(`daily_v2/nga-bay`);
+                    nbRef.orderByKey().startAt(startKey).endAt(endKey).once('value', (snapshot) => {
+                        const data = {};
+                        snapshot.forEach((child) => {
+                            data[child.key] = child.val();
+                        });
+                        setNgaBayYearlyData(data);
+                    });
+                } else {
+                    setNgaBayYearlyData({});
+                }
             };
 
             const loadMonthlyMedicineData = () => {
@@ -610,7 +683,7 @@
                     const branchesData = [];
                     for (const b of branches) {
                         const snap = await db.ref(`daily_v2/${b.key}/${dateKey}`).once('value');
-                        branchesData.push({ name: b.name, data: snap.val() });
+                        branchesData.push({ key: b.key, name: b.name, data: snap.val() });
                     }
                     const msg = buildDailyReport(selectedDate, branchesData);
                     const ok = await sendTelegram(msg);
@@ -643,12 +716,16 @@
                     return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
                 }, 0);
 
+                const transferredMedicine = selectedBranch === 'thot-not' ? (ngaBayDailyMedicineTotal || 0) : 0;
+                const branchOwnNet = examTotal - expenseTotal - doctorTotal - medicineTotal;
+
                 return {
                     examTotal,
                     expenseTotal,
                     doctorTotal,
                     medicineTotal,
-                    grandTotal: examTotal - expenseTotal - doctorTotal - medicineTotal
+                    transferredMedicine,
+                    grandTotal: branchOwnNet + transferredMedicine
                 };
             };
 
@@ -882,15 +959,36 @@
                                         <span className="text-orange-600 font-bold text-xl">-{totals.expenseTotal.toLocaleString()}k</span>
                                     </div>
                                     <div className="flex justify-between items-center p-3 bg-white rounded-lg">
-                                        <span className="font-semibold text-gray-700">💊 Tiền thuốc:</span>
+                                        <div>
+                                            <span className="font-semibold text-gray-700">💊 Tiền thuốc:</span>
+                                            {selectedBranch === 'nga-bay' && (
+                                                <span className="ml-2 text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded font-normal">Chuyển về Thốt Nốt</span>
+                                            )}
+                                        </div>
                                         <span className="text-purple-600 font-bold text-xl">-{totals.medicineTotal.toLocaleString()}k</span>
                                     </div>
+                                    {selectedBranch === 'thot-not' && (
+                                        <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                            <div>
+                                                <span className="font-semibold text-emerald-800">📦 Thuốc nhận từ Ngã Bảy:</span>
+                                                <div className="text-xs text-emerald-600">Được cộng vào thu nhập Thốt Nốt</div>
+                                            </div>
+                                            <span className="text-emerald-700 font-bold text-xl">+{totals.transferredMedicine.toLocaleString()}k</span>
+                                        </div>
+                                    )}
                                     <hr className="my-2 border-gray-300"/>
                                     <div className="flex justify-between items-center p-4 bg-white rounded-lg border-2 border-green-500">
                                         <span className="font-bold text-lg text-gray-800">💵 Còn lại:</span>
-                                        <span className={`font-bold text-2xl ${totals.grandTotal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            {totals.grandTotal >= 0 ? '+' : ''}{totals.grandTotal.toLocaleString()}k
-                                        </span>
+                                        <div className="text-right">
+                                            <span className={`font-bold text-2xl ${totals.grandTotal >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                {totals.grandTotal >= 0 ? '+' : ''}{totals.grandTotal.toLocaleString()}k
+                                            </span>
+                                            {selectedBranch === 'thot-not' && totals.transferredMedicine > 0 && (
+                                                <div className="text-xs text-gray-500 font-medium">
+                                                    (Thu tại chỗ: {(totals.grandTotal - totals.transferredMedicine).toLocaleString()}k + Thuốc NB: {totals.transferredMedicine.toLocaleString()}k)
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -930,6 +1028,7 @@
                             selectedBranch={selectedBranch}
                             selectedDate={selectedDate}
                             monthlyData={monthlyData}
+                            ngaBayMonthlyData={ngaBayMonthlyData}
                         />
                     )}
 
@@ -938,6 +1037,7 @@
                             selectedBranch={selectedBranch}
                             selectedDate={selectedDate}
                             yearlyData={yearlyData}
+                            ngaBayYearlyData={ngaBayYearlyData}
                         />
                     )}
 
@@ -952,7 +1052,7 @@
         }
 
         // Yearly Report View Component
-        function YearlyReportView({ selectedBranch, selectedDate, yearlyData }) {
+        function YearlyReportView({ selectedBranch, selectedDate, yearlyData, ngaBayYearlyData = {} }) {
             const year = selectedDate.substring(0, 4);
 
             // Group data by month
@@ -969,7 +1069,7 @@
                 }
             });
 
-            const calculateMonthTotals = (monthData) => {
+            const calculateMonthTotals = (monthKey, monthData) => {
                 let examTotal = 0, doctorTotal = 0, expenseTotal = 0, medicineTotal = 0, totalCases = 0, zeroCases = 0;
 
                 monthData.forEach(dayData => {
@@ -1001,20 +1101,31 @@
                     zeroCases += parseInt(dayData.examinations?.['0'] || 0);
                 });
 
+                // Transferred medicine from Nga Bay for this month (when viewing Thot Not)
+                let transferredMedicine = 0;
+                if (selectedBranch === 'thot-not') {
+                    Object.entries(ngaBayYearlyData).forEach(([dKey, nbDay]) => {
+                        if (dKey.substring(4, 6) === monthKey && Array.isArray(nbDay.medicines)) {
+                            transferredMedicine += nbDay.medicines.reduce((sum, m) => sum + (parseFloat(m.quantity || 0) * parseFloat(m.price || 0)), 0);
+                        }
+                    });
+                }
+
                 return {
                     examTotal,
                     doctorTotal,
                     expenseTotal,
                     medicineTotal,
+                    transferredMedicine,
                     totalCases,
                     zeroCases,
-                    netTotal: examTotal - doctorTotal - expenseTotal - medicineTotal
+                    netTotal: (examTotal - doctorTotal - expenseTotal - medicineTotal) + transferredMedicine
                 };
             };
 
             const monthlyTotals = Object.entries(monthlyGroups).map(([month, data]) => ({
                 month,
-                ...calculateMonthTotals(data)
+                ...calculateMonthTotals(month, data)
             }));
 
             const yearTotal = monthlyTotals.reduce((acc, month) => ({
@@ -1022,40 +1133,43 @@
                 doctorTotal: acc.doctorTotal + month.doctorTotal,
                 expenseTotal: acc.expenseTotal + month.expenseTotal,
                 medicineTotal: acc.medicineTotal + month.medicineTotal,
+                transferredMedicine: acc.transferredMedicine + month.transferredMedicine,
                 totalCases: acc.totalCases + month.totalCases,
                 zeroCases: acc.zeroCases + month.zeroCases,
                 netTotal: acc.netTotal + month.netTotal
-            }), { examTotal: 0, doctorTotal: 0, expenseTotal: 0, medicineTotal: 0, totalCases: 0, zeroCases: 0, netTotal: 0 });
+            }), { examTotal: 0, doctorTotal: 0, expenseTotal: 0, medicineTotal: 0, transferredMedicine: 0, totalCases: 0, zeroCases: 0, netTotal: 0 });
 
             const exportYearlyToExcel = () => {
                 const wb = XLSX.utils.book_new();
+                const isThotNot = selectedBranch === 'thot-not';
                 
+                const headers = isThotNot
+                    ? ['Tháng', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Thuốc nhận từ NB (k)', 'Còn lại (k)']
+                    : ['Tháng', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc chuyển TN (k)', 'Còn lại (k)'];
+
                 const data = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Báo cáo năm ${year}`],
-                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
-                    ['Tháng', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
+                    headers,
                 ];
 
-                monthlyTotals.forEach(({ month, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, netTotal }) => {
-                    data.push([
-                        `Tháng ${parseInt(month)}`,
-                        examTotal,
-                        totalCases,
-                        zeroCases,
-                        doctorTotal,
-                        expenseTotal,
-                        medicineTotal,
-                        netTotal
-                    ]);
+                monthlyTotals.forEach(({ month, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal }) => {
+                    const row = isThotNot
+                        ? [`Tháng ${parseInt(month)}`, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal]
+                        : [`Tháng ${parseInt(month)}`, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, netTotal];
+                    data.push(row);
                 });
 
                 data.push([]);
-                data.push(['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal]);
+                const totalRow = isThotNot
+                    ? ['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.transferredMedicine, yearTotal.netTotal]
+                    : ['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal];
+                data.push(totalRow);
 
                 const ws = XLSX.utils.aoa_to_sheet(data);
-                ws['!cols'] = [
+                ws['!cols'] = isThotNot ? [
                     { wch: 12 },  // Tháng
                     { wch: 15 },  // Tiền khám
                     { wch: 10 },  // Số ca
@@ -1063,6 +1177,16 @@
                     { wch: 15 },  // Lương BS
                     { wch: 15 },  // Chi phí
                     { wch: 15 },  // Tiền thuốc
+                    { wch: 22 },  // Thuốc từ NB
+                    { wch: 15 }   // Còn lại
+                ] : [
+                    { wch: 12 },  // Tháng
+                    { wch: 15 },  // Tiền khám
+                    { wch: 10 },  // Số ca
+                    { wch: 10 },  // Số ca 0đ
+                    { wch: 15 },  // Lương BS
+                    { wch: 15 },  // Chi phí
+                    { wch: 22 },  // Tiền thuốc chuyển TN
                     { wch: 15 }   // Còn lại
                 ];
 
@@ -1091,7 +1215,7 @@
                         </div>
 
                         {/* Yearly Summary */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                        <div className={`grid grid-cols-1 md:grid-cols-2 ${selectedBranch === 'thot-not' ? 'lg:grid-cols-7' : 'lg:grid-cols-6'} gap-4 mb-6`}>
                             <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border-l-4 border-green-500 shadow">
                                 <p className="text-xs text-green-700 font-semibold mb-1">💰 Tiền khám</p>
                                 <p className="text-2xl font-bold text-green-600">{yearTotal.examTotal.toLocaleString()}k</p>
@@ -1109,9 +1233,15 @@
                                 <p className="text-2xl font-bold text-orange-600">{yearTotal.expenseTotal.toLocaleString()}k</p>
                             </div>
                             <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border-l-4 border-purple-500 shadow">
-                                <p className="text-xs text-purple-700 font-semibold mb-1">💊 Tiền thuốc</p>
+                                <p className="text-xs text-purple-700 font-semibold mb-1">💊 Tiền thuốc{selectedBranch === 'nga-bay' ? ' (chuyển TN)' : ''}</p>
                                 <p className="text-2xl font-bold text-purple-600">{yearTotal.medicineTotal.toLocaleString()}k</p>
                             </div>
+                            {selectedBranch === 'thot-not' && (
+                                <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-4 rounded-lg border-l-4 border-teal-500 shadow">
+                                    <p className="text-xs text-teal-700 font-semibold mb-1">📦 Thuốc từ Ngã Bảy</p>
+                                    <p className="text-2xl font-bold text-teal-600">+{yearTotal.transferredMedicine.toLocaleString()}k</p>
+                                </div>
+                            )}
                             <div className={`p-4 rounded-lg border-l-4 shadow ${yearTotal.netTotal >= 0 ? 'bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-500' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-500'}`}>
                                 <p className={`text-xs font-semibold mb-1 ${yearTotal.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>💵 Còn lại</p>
                                 <p className={`text-2xl font-bold ${yearTotal.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -1130,12 +1260,15 @@
                                         <th className="border border-gray-600 p-3 text-right">👥 Số ca</th>
                                         <th className="border border-gray-600 p-3 text-right">👨‍⚕️ Lương BS</th>
                                         <th className="border border-gray-600 p-3 text-right">💸 Chi phí</th>
-                                        <th className="border border-gray-600 p-3 text-right">💊 Tiền thuốc</th>
+                                        <th className="border border-gray-600 p-3 text-right">💊 Tiền thuốc{selectedBranch === 'nga-bay' ? ' (chuyển TN)' : ''}</th>
+                                        {selectedBranch === 'thot-not' && (
+                                            <th className="border border-gray-600 p-3 text-right">📦 Thuốc nhận từ NB</th>
+                                        )}
                                         <th className="border border-gray-600 p-3 text-right">💵 Còn lại</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {monthlyTotals.map(({ month, examTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, netTotal }) => (
+                                    {monthlyTotals.map(({ month, examTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal }) => (
                                         <tr key={month} className="hover:bg-blue-50 transition">
                                             <td className="border border-gray-300 p-3 font-semibold">Tháng {parseInt(month)}</td>
                                             <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
@@ -1153,6 +1286,11 @@
                                             <td className="border border-gray-300 p-3 text-right text-purple-600 font-semibold">
                                                 {medicineTotal.toLocaleString()}k
                                             </td>
+                                            {selectedBranch === 'thot-not' && (
+                                                <td className="border border-gray-300 p-3 text-right text-teal-600 font-semibold">
+                                                    +{transferredMedicine.toLocaleString()}k
+                                                </td>
+                                            )}
                                             <td className={`border border-gray-300 p-3 text-right font-bold ${netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                 {netTotal.toLocaleString()}k
                                             </td>
@@ -1175,6 +1313,11 @@
                                         <td className="border border-gray-300 p-3 text-right text-purple-600">
                                             {yearTotal.medicineTotal.toLocaleString()}k
                                         </td>
+                                        {selectedBranch === 'thot-not' && (
+                                            <td className="border border-gray-300 p-3 text-right text-teal-600">
+                                                +{yearTotal.transferredMedicine.toLocaleString()}k
+                                            </td>
+                                        )}
                                         <td className={`border border-gray-300 p-3 text-right ${yearTotal.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                             {yearTotal.netTotal.toLocaleString()}k
                                         </td>
@@ -2652,8 +2795,15 @@
         }
 
         // Report View Component
-        function ReportView({ selectedBranch, selectedDate, monthlyData }) {
-            const calculateDayTotals = (dayData) => {
+        function ReportView({ selectedBranch, selectedDate, monthlyData, ngaBayMonthlyData = {} }) {
+            const getTransferredMedicineForDay = (dateKey) => {
+                if (selectedBranch !== 'thot-not') return 0;
+                const nbDay = ngaBayMonthlyData[dateKey];
+                if (!nbDay || !Array.isArray(nbDay.medicines)) return 0;
+                return nbDay.medicines.reduce((sum, med) => sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0)), 0);
+            };
+
+            const calculateDayTotals = (dayData, dateKey) => {
                 const examTotal = Object.entries(dayData.examinations || {})
                     .filter(([price, count]) => count && parseFloat(count) > 0)
                     .reduce((sum, [price, count]) => {
@@ -2672,42 +2822,52 @@
                     return sum + (parseFloat(med.quantity || 0) * parseFloat(med.price || 0));
                 }, 0);
 
+                const transferredMedicine = getTransferredMedicineForDay(dateKey);
+                const netTotal = (examTotal - expenseTotal - doctorTotal - medicineTotal) + transferredMedicine;
+
                 return {
                     examTotal,
                     expenseTotal,
                     doctorTotal,
                     medicineTotal,
-                    netTotal: examTotal - expenseTotal - doctorTotal - medicineTotal
+                    transferredMedicine,
+                    netTotal
                 };
             };
 
-            const monthlyTotals = Object.values(monthlyData).reduce((acc, day) => {
-                const totals = calculateDayTotals(day);
+            const monthlyTotals = Object.entries(monthlyData).reduce((acc, [dateKey, day]) => {
+                const totals = calculateDayTotals(day, dateKey);
                 return {
                     examTotal: acc.examTotal + totals.examTotal,
                     expenseTotal: acc.expenseTotal + totals.expenseTotal,
                     doctorTotal: acc.doctorTotal + totals.doctorTotal,
                     medicineTotal: acc.medicineTotal + totals.medicineTotal,
+                    transferredMedicine: acc.transferredMedicine + totals.transferredMedicine,
                     netTotal: acc.netTotal + totals.netTotal
                 };
-            }, { examTotal: 0, expenseTotal: 0, doctorTotal: 0, medicineTotal: 0, netTotal: 0 });
+            }, { examTotal: 0, expenseTotal: 0, doctorTotal: 0, medicineTotal: 0, transferredMedicine: 0, netTotal: 0 });
 
             const sortedDays = Object.entries(monthlyData).sort((a, b) => a[0].localeCompare(b[0]));
 
             const exportToExcel = () => {
                 const wb = XLSX.utils.book_new();
+                const isThotNot = selectedBranch === 'thot-not';
                 
                 // Sheet 1: Tổng hợp
+                const summaryHeaders = isThotNot
+                    ? ['Ngày', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Thuốc nhận từ NB (k)', 'Còn lại (k)']
+                    : ['Ngày', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc chuyển TN (k)', 'Còn lại (k)'];
+
                 const summaryData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Báo cáo tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
-                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
-                    ['Ngày', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Còn lại (k)'],
+                    summaryHeaders,
                 ];
 
                 sortedDays.forEach(([dateKey, dayData]) => {
-                    const totals = calculateDayTotals(dayData);
+                    const totals = calculateDayTotals(dayData, dateKey);
                     const totalCases = Object.entries(dayData.examinations || {}).reduce((sum, [price, count]) => {
                         return sum + parseInt(count || 0);
                     }, 0);
@@ -2715,16 +2875,10 @@
                     // Đếm số ca 0 đồng
                     const zeroCases = parseInt(dayData.examinations?.['0'] || 0);
                     
-                    summaryData.push([
-                        dayData.date,
-                        totals.examTotal,
-                        totalCases,
-                        zeroCases,
-                        totals.doctorTotal,
-                        totals.expenseTotal,
-                        totals.medicineTotal,
-                        totals.netTotal
-                    ]);
+                    const row = isThotNot
+                        ? [dayData.date, totals.examTotal, totalCases, zeroCases, totals.doctorTotal, totals.expenseTotal, totals.medicineTotal, totals.transferredMedicine, totals.netTotal]
+                        : [dayData.date, totals.examTotal, totalCases, zeroCases, totals.doctorTotal, totals.expenseTotal, totals.medicineTotal, totals.netTotal];
+                    summaryData.push(row);
                 });
 
                 summaryData.push([]);
@@ -2740,10 +2894,13 @@
                     return sum + parseInt(dayData.examinations?.['0'] || 0);
                 }, 0);
                 
-                summaryData.push(['TỔNG', monthlyTotals.examTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal]);
+                const totalRow = isThotNot
+                    ? ['TỔNG', monthlyTotals.examTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.transferredMedicine, monthlyTotals.netTotal]
+                    : ['TỔNG', monthlyTotals.examTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal];
+                summaryData.push(totalRow);
 
                 const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-                wsSummary['!cols'] = [
+                wsSummary['!cols'] = isThotNot ? [
                     { wch: 12 },  // Ngày
                     { wch: 15 },  // Tiền khám
                     { wch: 10 },  // Số ca
@@ -2751,6 +2908,16 @@
                     { wch: 15 },  // Lương BS
                     { wch: 15 },  // Chi phí
                     { wch: 15 },  // Tiền thuốc
+                    { wch: 22 },  // Thuốc từ NB
+                    { wch: 15 }   // Còn lại
+                ] : [
+                    { wch: 12 },  // Ngày
+                    { wch: 15 },  // Tiền khám
+                    { wch: 10 },  // Số ca
+                    { wch: 10 },  // Số ca 0đ
+                    { wch: 15 },  // Lương BS
+                    { wch: 15 },  // Chi phí
+                    { wch: 22 },  // Tiền thuốc chuyển TN
                     { wch: 15 }   // Còn lại
                 ];
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng hợp');
@@ -2759,7 +2926,7 @@
                 const medicineData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Chi tiết tiền thuốc tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
-                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Tên thuốc', 'Số lượng', 'Giá (k)', 'Thành tiền (k)'],
                 ];
@@ -2808,7 +2975,7 @@
                 const examData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Chi tiết tiền khám tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
-                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Giá khám (k)', 'Số ca', 'Thành tiền (k)'],
                 ];
@@ -2862,7 +3029,7 @@
                 const doctorData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Chi tiết lương bác sĩ tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
-                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Tên bác sĩ', 'Lương (k)'],
                 ];
@@ -2903,7 +3070,7 @@
                 const expenseData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Chi tiết chi phí tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
-                    [`Chi nhánh: ${selectedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Mô tả', 'Số tiền (k)'],
                 ];
@@ -2965,7 +3132,7 @@
                         </div>
 
                         {/* Monthly Summary */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                        <div className={`grid grid-cols-1 md:grid-cols-2 ${selectedBranch === 'thot-not' ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-4 mb-6`}>
                             <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg border-l-4 border-green-500 shadow">
                                 <p className="text-sm text-green-700 font-semibold mb-1">💰 Tổng tiền khám</p>
                                 <p className="text-3xl font-bold text-green-600">{monthlyTotals.examTotal.toLocaleString()}k</p>
@@ -2979,9 +3146,15 @@
                                 <p className="text-3xl font-bold text-orange-600">{monthlyTotals.expenseTotal.toLocaleString()}k</p>
                             </div>
                             <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-lg border-l-4 border-purple-500 shadow">
-                                <p className="text-sm text-purple-700 font-semibold mb-1">💊 Tiền thuốc</p>
+                                <p className="text-sm text-purple-700 font-semibold mb-1">💊 Tiền thuốc{selectedBranch === 'nga-bay' ? ' (chuyển TN)' : ''}</p>
                                 <p className="text-3xl font-bold text-purple-600">{monthlyTotals.medicineTotal.toLocaleString()}k</p>
                             </div>
+                            {selectedBranch === 'thot-not' && (
+                                <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-6 rounded-lg border-l-4 border-teal-500 shadow">
+                                    <p className="text-sm text-teal-700 font-semibold mb-1">📦 Thuốc từ Ngã Bảy</p>
+                                    <p className="text-3xl font-bold text-teal-600">+{monthlyTotals.transferredMedicine.toLocaleString()}k</p>
+                                </div>
+                            )}
                             <div className={`p-6 rounded-lg border-l-4 shadow ${monthlyTotals.netTotal >= 0 ? 'bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-500' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-500'}`}>
                                 <p className={`text-sm font-semibold mb-1 ${monthlyTotals.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>💵 Còn lại</p>
                                 <p className={`text-3xl font-bold ${monthlyTotals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -2999,20 +3172,23 @@
                                         <th className="border border-gray-600 p-3 text-right">💰 Tiền khám</th>
                                         <th className="border border-gray-600 p-3 text-right">👨‍⚕️ Lương BS</th>
                                         <th className="border border-gray-600 p-3 text-right">💸 Chi phí</th>
-                                        <th className="border border-gray-600 p-3 text-right">💊 Tiền thuốc</th>
+                                        <th className="border border-gray-600 p-3 text-right">💊 Tiền thuốc{selectedBranch === 'nga-bay' ? ' (chuyển TN)' : ''}</th>
+                                        {selectedBranch === 'thot-not' && (
+                                            <th className="border border-gray-600 p-3 text-right">📦 Thuốc nhận từ NB</th>
+                                        )}
                                         <th className="border border-gray-600 p-3 text-right">💵 Còn lại</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {sortedDays.length === 0 && (
                                         <tr>
-                                            <td colSpan="6" className="border p-6 text-center text-gray-400">
+                                            <td colSpan={selectedBranch === 'thot-not' ? 7 : 6} className="border p-6 text-center text-gray-400">
                                                 Chưa có dữ liệu trong tháng này
                                             </td>
                                         </tr>
                                     )}
                                     {sortedDays.map(([dateKey, dayData]) => {
-                                        const totals = calculateDayTotals(dayData);
+                                        const totals = calculateDayTotals(dayData, dateKey);
                                         return (
                                             <tr key={dateKey} className="hover:bg-blue-50 transition">
                                                 <td className="border border-gray-300 p-3 font-semibold">{dayData.date}</td>
@@ -3028,6 +3204,11 @@
                                                 <td className="border border-gray-300 p-3 text-right text-purple-600 font-semibold">
                                                     {totals.medicineTotal.toLocaleString()}k
                                                 </td>
+                                                {selectedBranch === 'thot-not' && (
+                                                    <td className="border border-gray-300 p-3 text-right text-teal-600 font-semibold">
+                                                        +{totals.transferredMedicine.toLocaleString()}k
+                                                    </td>
+                                                )}
                                                 <td className={`border border-gray-300 p-3 text-right font-bold ${totals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                     {totals.netTotal.toLocaleString()}k
                                                 </td>
@@ -3049,6 +3230,11 @@
                                             <td className="border border-gray-300 p-3 text-right text-purple-600">
                                                 {monthlyTotals.medicineTotal.toLocaleString()}k
                                             </td>
+                                            {selectedBranch === 'thot-not' && (
+                                                <td className="border border-gray-300 p-3 text-right text-teal-600">
+                                                    +{monthlyTotals.transferredMedicine.toLocaleString()}k
+                                                </td>
+                                            )}
                                             <td className={`border border-gray-300 p-3 text-right ${monthlyTotals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                 {monthlyTotals.netTotal.toLocaleString()}k
                                             </td>

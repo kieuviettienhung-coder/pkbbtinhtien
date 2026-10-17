@@ -1140,14 +1140,29 @@
             });
 
             const calculateMonthTotals = (monthKey, monthData) => {
-                let examTotal = 0, doctorTotal = 0, expenseTotal = 0, medicineTotal = 0, totalCases = 0, zeroCases = 0;
+                let examTotal = 0, examCashTotal = 0, examTransferTotal = 0;
+                let doctorTotal = 0, expenseTotal = 0, medicineTotal = 0, totalCases = 0, zeroCases = 0;
 
                 monthData.forEach(dayData => {
-                    examTotal += Object.entries(dayData.examinations || {})
+                    const dayExam = Object.entries(dayData.examinations || {})
                         .filter(([price, count]) => count && parseFloat(count) > 0)
                         .reduce((sum, [price, count]) => {
                             return sum + (parseFloat(price) * parseFloat(count));
                         }, 0);
+                    examTotal += dayExam;
+
+                    let dayTransfer = 0;
+                    Object.entries(dayData.patientDetails || {}).forEach(([price, patients]) => {
+                        if (Array.isArray(patients)) {
+                            patients.forEach(p => {
+                                if (p && p.paymentMethod === 'transfer') {
+                                    dayTransfer += parseFloat(price || 0);
+                                }
+                            });
+                        }
+                    });
+                    examTransferTotal += dayTransfer;
+                    examCashTotal += (dayExam - dayTransfer);
 
                     doctorTotal += (dayData.doctorFees || []).reduce((sum, fee) => {
                         return sum + parseFloat(fee.amount || 0);
@@ -1181,15 +1196,25 @@
                     });
                 }
 
+                const branchOwnNet = examTotal - doctorTotal - expenseTotal - medicineTotal;
+                const netCash = examCashTotal - doctorTotal - expenseTotal - medicineTotal;
+                const netTransfer = examTransferTotal;
+                const netTotal = branchOwnNet + transferredMedicine;
+
                 return {
                     examTotal,
+                    examCashTotal,
+                    examTransferTotal,
                     doctorTotal,
                     expenseTotal,
                     medicineTotal,
                     transferredMedicine,
                     totalCases,
                     zeroCases,
-                    netTotal: (examTotal - doctorTotal - expenseTotal - medicineTotal) + transferredMedicine
+                    branchOwnNet,
+                    netCash,
+                    netTransfer,
+                    netTotal
                 };
             };
 
@@ -1200,22 +1225,41 @@
 
             const yearTotal = monthlyTotals.reduce((acc, month) => ({
                 examTotal: acc.examTotal + month.examTotal,
+                examCashTotal: acc.examCashTotal + month.examCashTotal,
+                examTransferTotal: acc.examTransferTotal + month.examTransferTotal,
                 doctorTotal: acc.doctorTotal + month.doctorTotal,
                 expenseTotal: acc.expenseTotal + month.expenseTotal,
                 medicineTotal: acc.medicineTotal + month.medicineTotal,
                 transferredMedicine: acc.transferredMedicine + month.transferredMedicine,
                 totalCases: acc.totalCases + month.totalCases,
                 zeroCases: acc.zeroCases + month.zeroCases,
+                branchOwnNet: acc.branchOwnNet + month.branchOwnNet,
+                netCash: acc.netCash + month.netCash,
+                netTransfer: acc.netTransfer + month.netTransfer,
                 netTotal: acc.netTotal + month.netTotal
-            }), { examTotal: 0, doctorTotal: 0, expenseTotal: 0, medicineTotal: 0, transferredMedicine: 0, totalCases: 0, zeroCases: 0, netTotal: 0 });
+            }), { 
+                examTotal: 0, 
+                examCashTotal: 0, 
+                examTransferTotal: 0, 
+                doctorTotal: 0, 
+                expenseTotal: 0, 
+                medicineTotal: 0, 
+                transferredMedicine: 0, 
+                totalCases: 0, 
+                zeroCases: 0, 
+                branchOwnNet: 0, 
+                netCash: 0, 
+                netTransfer: 0, 
+                netTotal: 0 
+            });
 
             const exportYearlyToExcel = () => {
                 const wb = XLSX.utils.book_new();
                 const isThotNot = selectedBranch === 'thot-not';
                 
                 const headers = isThotNot
-                    ? ['Tháng', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Thuốc nhận từ NB (k)', 'Còn lại (k)']
-                    : ['Tháng', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc chuyển TN (k)', 'Còn lại (k)'];
+                    ? ['Tháng', 'Tiền khám (k)', 'Khám TM (k)', 'Khám CK (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Thuốc nhận từ NB (k)', 'Còn lại (k)', 'Còn lại TM (k)', 'Còn lại CK (k)']
+                    : ['Tháng', 'Tiền khám (k)', 'Khám TM (k)', 'Khám CK (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc chuyển TN (k)', 'Còn lại (k)', 'Còn lại TM (k)', 'Còn lại CK (k)'];
 
                 const data = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
@@ -1225,39 +1269,47 @@
                     headers,
                 ];
 
-                monthlyTotals.forEach(({ month, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal }) => {
+                monthlyTotals.forEach(({ month, examTotal, examCashTotal, examTransferTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal, netCash, netTransfer }) => {
                     const row = isThotNot
-                        ? [`Tháng ${parseInt(month)}`, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal]
-                        : [`Tháng ${parseInt(month)}`, examTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, netTotal];
+                        ? [`Tháng ${parseInt(month)}`, examTotal, examCashTotal, examTransferTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal, netCash, netTransfer]
+                        : [`Tháng ${parseInt(month)}`, examTotal, examCashTotal, examTransferTotal, totalCases, zeroCases, doctorTotal, expenseTotal, medicineTotal, netTotal, netCash, netTransfer];
                     data.push(row);
                 });
 
                 data.push([]);
                 const totalRow = isThotNot
-                    ? ['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.transferredMedicine, yearTotal.netTotal]
-                    : ['TỔNG NĂM', yearTotal.examTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal];
+                    ? ['TỔNG NĂM', yearTotal.examTotal, yearTotal.examCashTotal, yearTotal.examTransferTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.transferredMedicine, yearTotal.netTotal, yearTotal.netCash, yearTotal.netTransfer]
+                    : ['TỔNG NĂM', yearTotal.examTotal, yearTotal.examCashTotal, yearTotal.examTransferTotal, yearTotal.totalCases, yearTotal.zeroCases, yearTotal.doctorTotal, yearTotal.expenseTotal, yearTotal.medicineTotal, yearTotal.netTotal, yearTotal.netCash, yearTotal.netTransfer];
                 data.push(totalRow);
 
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 ws['!cols'] = isThotNot ? [
                     { wch: 12 },  // Tháng
                     { wch: 15 },  // Tiền khám
+                    { wch: 14 },  // Khám TM
+                    { wch: 14 },  // Khám CK
                     { wch: 10 },  // Số ca
                     { wch: 10 },  // Số ca 0đ
                     { wch: 15 },  // Lương BS
                     { wch: 15 },  // Chi phí
                     { wch: 15 },  // Tiền thuốc
                     { wch: 22 },  // Thuốc từ NB
-                    { wch: 15 }   // Còn lại
+                    { wch: 15 },  // Còn lại
+                    { wch: 15 },  // Còn lại TM
+                    { wch: 15 }   // Còn lại CK
                 ] : [
                     { wch: 12 },  // Tháng
                     { wch: 15 },  // Tiền khám
+                    { wch: 14 },  // Khám TM
+                    { wch: 14 },  // Khám CK
                     { wch: 10 },  // Số ca
                     { wch: 10 },  // Số ca 0đ
                     { wch: 15 },  // Lương BS
                     { wch: 15 },  // Chi phí
                     { wch: 22 },  // Tiền thuốc chuyển TN
-                    { wch: 15 }   // Còn lại
+                    { wch: 15 },  // Còn lại
+                    { wch: 15 },  // Còn lại TM
+                    { wch: 15 }   // Còn lại CK
                 ];
 
                 XLSX.utils.book_append_sheet(wb, ws, `Năm ${year}`);
@@ -1289,6 +1341,11 @@
                             <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border-l-4 border-green-500 shadow">
                                 <p className="text-xs text-green-700 font-semibold mb-1">💰 Tiền khám</p>
                                 <p className="text-2xl font-bold text-green-600">{yearTotal.examTotal.toLocaleString()}k</p>
+                                {yearTotal.examTransferTotal > 0 && (
+                                    <p className="text-xs text-green-700 font-medium mt-1">
+                                        (💵 TM: {yearTotal.examCashTotal.toLocaleString()}k • 💳 CK: {yearTotal.examTransferTotal.toLocaleString()}k)
+                                    </p>
+                                )}
                             </div>
                             <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-4 rounded-lg border-l-4 border-indigo-500 shadow">
                                 <p className="text-xs text-indigo-700 font-semibold mb-1">👥 Số ca</p>
@@ -1317,6 +1374,11 @@
                                 <p className={`text-2xl font-bold ${yearTotal.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                     {yearTotal.netTotal.toLocaleString()}k
                                 </p>
+                                {yearTotal.examTransferTotal > 0 && (
+                                    <p className={`text-xs font-medium mt-1 ${yearTotal.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                        (💵 TM: {yearTotal.netCash >= 0 ? '+' : ''}{yearTotal.netCash.toLocaleString()}k • 💳 CK: +{yearTotal.netTransfer.toLocaleString()}k{selectedBranch === 'thot-not' && yearTotal.transferredMedicine > 0 ? ` • 📦 Thuốc NB: +${yearTotal.transferredMedicine.toLocaleString()}k` : ''})
+                                    </p>
+                                )}
                             </div>
                         </div>
 
@@ -1338,11 +1400,16 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {monthlyTotals.map(({ month, examTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal }) => (
+                                    {monthlyTotals.map(({ month, examTotal, examCashTotal, examTransferTotal, totalCases, doctorTotal, expenseTotal, medicineTotal, transferredMedicine, netTotal, netCash, netTransfer }) => (
                                         <tr key={month} className="hover:bg-blue-50 transition">
                                             <td className="border border-gray-300 p-3 font-semibold">Tháng {parseInt(month)}</td>
                                             <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
-                                                {examTotal.toLocaleString()}k
+                                                <div>{examTotal.toLocaleString()}k</div>
+                                                {examTransferTotal > 0 && (
+                                                    <div className="text-xs text-gray-500 font-normal">
+                                                        (TM: {examCashTotal.toLocaleString()}k • CK: {examTransferTotal.toLocaleString()}k)
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="border border-gray-300 p-3 text-right text-indigo-600 font-semibold">
                                                 {totalCases}
@@ -1362,14 +1429,24 @@
                                                 </td>
                                             )}
                                             <td className={`border border-gray-300 p-3 text-right font-bold ${netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                {netTotal.toLocaleString()}k
+                                                <div>{netTotal.toLocaleString()}k</div>
+                                                {examTransferTotal > 0 && (
+                                                    <div className="text-xs text-gray-500 font-normal">
+                                                        (TM: {netCash >= 0 ? '+' : ''}{netCash.toLocaleString()}k • CK: +{netTransfer.toLocaleString()}k)
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
                                     <tr className="bg-gray-100 font-bold">
                                         <td className="border border-gray-300 p-3">TỔNG NĂM</td>
                                         <td className="border border-gray-300 p-3 text-right text-green-600">
-                                            {yearTotal.examTotal.toLocaleString()}k
+                                            <div>{yearTotal.examTotal.toLocaleString()}k</div>
+                                            {yearTotal.examTransferTotal > 0 && (
+                                                <div className="text-xs text-green-700 font-normal">
+                                                    (TM: {yearTotal.examCashTotal.toLocaleString()}k • CK: {yearTotal.examTransferTotal.toLocaleString()}k)
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="border border-gray-300 p-3 text-right text-indigo-600">
                                             {yearTotal.totalCases}
@@ -1389,7 +1466,12 @@
                                             </td>
                                         )}
                                         <td className={`border border-gray-300 p-3 text-right ${yearTotal.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                            {yearTotal.netTotal.toLocaleString()}k
+                                            <div>{yearTotal.netTotal.toLocaleString()}k</div>
+                                            {yearTotal.examTransferTotal > 0 && (
+                                                <div className="text-xs text-gray-600 font-normal">
+                                                    (TM: {yearTotal.netCash >= 0 ? '+' : ''}{yearTotal.netCash.toLocaleString()}k • CK: +{yearTotal.netTransfer.toLocaleString()}k)
+                                                </div>
+                                            )}
                                         </td>
                                     </tr>
                                 </tbody>
@@ -2971,6 +3053,18 @@
                         return sum + (parseFloat(price) * parseFloat(count));
                     }, 0);
 
+                let examTransferTotal = 0;
+                Object.entries(dayData.patientDetails || {}).forEach(([price, patients]) => {
+                    if (Array.isArray(patients)) {
+                        patients.forEach(p => {
+                            if (p && p.paymentMethod === 'transfer') {
+                                examTransferTotal += parseFloat(price || 0);
+                            }
+                        });
+                    }
+                });
+                const examCashTotal = examTotal - examTransferTotal;
+
                 const expenseTotal = (dayData.expenses || []).reduce((sum, exp) => {
                     return sum + parseFloat(exp.amount || 0);
                 }, 0);
@@ -2984,14 +3078,22 @@
                 }, 0);
 
                 const transferredMedicine = getTransferredMedicineForDay(dateKey);
-                const netTotal = (examTotal - expenseTotal - doctorTotal - medicineTotal) + transferredMedicine;
+                const branchOwnNet = examTotal - expenseTotal - doctorTotal - medicineTotal;
+                const netCash = examCashTotal - expenseTotal - doctorTotal - medicineTotal;
+                const netTransfer = examTransferTotal;
+                const netTotal = branchOwnNet + transferredMedicine;
 
                 return {
                     examTotal,
+                    examCashTotal,
+                    examTransferTotal,
                     expenseTotal,
                     doctorTotal,
                     medicineTotal,
                     transferredMedicine,
+                    branchOwnNet,
+                    netCash,
+                    netTransfer,
                     netTotal
                 };
             };
@@ -3000,13 +3102,30 @@
                 const totals = calculateDayTotals(day, dateKey);
                 return {
                     examTotal: acc.examTotal + totals.examTotal,
+                    examCashTotal: acc.examCashTotal + totals.examCashTotal,
+                    examTransferTotal: acc.examTransferTotal + totals.examTransferTotal,
                     expenseTotal: acc.expenseTotal + totals.expenseTotal,
                     doctorTotal: acc.doctorTotal + totals.doctorTotal,
                     medicineTotal: acc.medicineTotal + totals.medicineTotal,
                     transferredMedicine: acc.transferredMedicine + totals.transferredMedicine,
+                    branchOwnNet: acc.branchOwnNet + totals.branchOwnNet,
+                    netCash: acc.netCash + totals.netCash,
+                    netTransfer: acc.netTransfer + totals.netTransfer,
                     netTotal: acc.netTotal + totals.netTotal
                 };
-            }, { examTotal: 0, expenseTotal: 0, doctorTotal: 0, medicineTotal: 0, transferredMedicine: 0, netTotal: 0 });
+            }, { 
+                examTotal: 0, 
+                examCashTotal: 0, 
+                examTransferTotal: 0, 
+                expenseTotal: 0, 
+                doctorTotal: 0, 
+                medicineTotal: 0, 
+                transferredMedicine: 0, 
+                branchOwnNet: 0, 
+                netCash: 0, 
+                netTransfer: 0, 
+                netTotal: 0 
+            });
 
             const sortedDays = Object.entries(monthlyData).sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -3016,8 +3135,8 @@
                 
                 // Sheet 1: Tổng hợp
                 const summaryHeaders = isThotNot
-                    ? ['Ngày', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Thuốc nhận từ NB (k)', 'Còn lại (k)']
-                    : ['Ngày', 'Tiền khám (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc chuyển TN (k)', 'Còn lại (k)'];
+                    ? ['Ngày', 'Tiền khám (k)', 'Khám TM (k)', 'Khám CK (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc (k)', 'Thuốc nhận từ NB (k)', 'Còn lại (k)', 'Còn lại TM (k)', 'Còn lại CK (k)']
+                    : ['Ngày', 'Tiền khám (k)', 'Khám TM (k)', 'Khám CK (k)', 'Số ca', 'Số ca 0đ', 'Lương BS (k)', 'Chi phí (k)', 'Tiền thuốc chuyển TN (k)', 'Còn lại (k)', 'Còn lại TM (k)', 'Còn lại CK (k)'];
 
                 const summaryData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
@@ -3037,8 +3156,8 @@
                     const zeroCases = parseInt(dayData.examinations?.['0'] || 0);
                     
                     const row = isThotNot
-                        ? [dayData.date, totals.examTotal, totalCases, zeroCases, totals.doctorTotal, totals.expenseTotal, totals.medicineTotal, totals.transferredMedicine, totals.netTotal]
-                        : [dayData.date, totals.examTotal, totalCases, zeroCases, totals.doctorTotal, totals.expenseTotal, totals.medicineTotal, totals.netTotal];
+                        ? [dayData.date, totals.examTotal, totals.examCashTotal, totals.examTransferTotal, totalCases, zeroCases, totals.doctorTotal, totals.expenseTotal, totals.medicineTotal, totals.transferredMedicine, totals.netTotal, totals.netCash, totals.netTransfer]
+                        : [dayData.date, totals.examTotal, totals.examCashTotal, totals.examTransferTotal, totalCases, zeroCases, totals.doctorTotal, totals.expenseTotal, totals.medicineTotal, totals.netTotal, totals.netCash, totals.netTransfer];
                     summaryData.push(row);
                 });
 
@@ -3056,30 +3175,38 @@
                 }, 0);
                 
                 const totalRow = isThotNot
-                    ? ['TỔNG', monthlyTotals.examTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.transferredMedicine, monthlyTotals.netTotal]
-                    : ['TỔNG', monthlyTotals.examTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal];
+                    ? ['TỔNG', monthlyTotals.examTotal, monthlyTotals.examCashTotal, monthlyTotals.examTransferTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.transferredMedicine, monthlyTotals.netTotal, monthlyTotals.netCash, monthlyTotals.netTransfer]
+                    : ['TỔNG', monthlyTotals.examTotal, monthlyTotals.examCashTotal, monthlyTotals.examTransferTotal, totalCasesMonth, totalZeroCasesMonth, monthlyTotals.doctorTotal, monthlyTotals.expenseTotal, monthlyTotals.medicineTotal, monthlyTotals.netTotal, monthlyTotals.netCash, monthlyTotals.netTransfer];
                 summaryData.push(totalRow);
 
                 const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
                 wsSummary['!cols'] = isThotNot ? [
                     { wch: 12 },  // Ngày
                     { wch: 15 },  // Tiền khám
+                    { wch: 14 },  // Khám TM
+                    { wch: 14 },  // Khám CK
                     { wch: 10 },  // Số ca
                     { wch: 10 },  // Số ca 0đ
                     { wch: 15 },  // Lương BS
                     { wch: 15 },  // Chi phí
                     { wch: 15 },  // Tiền thuốc
                     { wch: 22 },  // Thuốc từ NB
-                    { wch: 15 }   // Còn lại
+                    { wch: 15 },  // Còn lại
+                    { wch: 15 },  // Còn lại TM
+                    { wch: 15 }   // Còn lại CK
                 ] : [
                     { wch: 12 },  // Ngày
                     { wch: 15 },  // Tiền khám
+                    { wch: 14 },  // Khám TM
+                    { wch: 14 },  // Khám CK
                     { wch: 10 },  // Số ca
                     { wch: 10 },  // Số ca 0đ
                     { wch: 15 },  // Lương BS
                     { wch: 15 },  // Chi phí
                     { wch: 22 },  // Tiền thuốc chuyển TN
-                    { wch: 15 }   // Còn lại
+                    { wch: 15 },  // Còn lại
+                    { wch: 15 },  // Còn lại TM
+                    { wch: 15 }   // Còn lại CK
                 ];
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng hợp');
 
@@ -3297,6 +3424,11 @@
                             <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg border-l-4 border-green-500 shadow">
                                 <p className="text-sm text-green-700 font-semibold mb-1">💰 Tổng tiền khám</p>
                                 <p className="text-3xl font-bold text-green-600">{monthlyTotals.examTotal.toLocaleString()}k</p>
+                                {monthlyTotals.examTransferTotal > 0 && (
+                                    <p className="text-xs text-green-700 font-medium mt-1">
+                                        (💵 TM: {monthlyTotals.examCashTotal.toLocaleString()}k • 💳 CK: {monthlyTotals.examTransferTotal.toLocaleString()}k)
+                                    </p>
+                                )}
                             </div>
                             <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg border-l-4 border-blue-500 shadow">
                                 <p className="text-sm text-blue-700 font-semibold mb-1">👨‍⚕️ Lương bác sĩ</p>
@@ -3321,6 +3453,11 @@
                                 <p className={`text-3xl font-bold ${monthlyTotals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                     {monthlyTotals.netTotal.toLocaleString()}k
                                 </p>
+                                {monthlyTotals.examTransferTotal > 0 && (
+                                    <p className={`text-xs font-medium mt-1 ${monthlyTotals.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                        (💵 TM: {monthlyTotals.netCash >= 0 ? '+' : ''}{monthlyTotals.netCash.toLocaleString()}k • 💳 CK: +{monthlyTotals.netTransfer.toLocaleString()}k{selectedBranch === 'thot-not' && monthlyTotals.transferredMedicine > 0 ? ` • 📦 Thuốc NB: +${monthlyTotals.transferredMedicine.toLocaleString()}k` : ''})
+                                    </p>
+                                )}
                             </div>
                         </div>
 
@@ -3354,7 +3491,12 @@
                                             <tr key={dateKey} className="hover:bg-blue-50 transition">
                                                 <td className="border border-gray-300 p-3 font-semibold">{dayData.date}</td>
                                                 <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
-                                                    {totals.examTotal.toLocaleString()}k
+                                                    <div>{totals.examTotal.toLocaleString()}k</div>
+                                                    {totals.examTransferTotal > 0 && (
+                                                        <div className="text-xs text-gray-500 font-normal">
+                                                            (TM: {totals.examCashTotal.toLocaleString()}k • CK: {totals.examTransferTotal.toLocaleString()}k)
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="border border-gray-300 p-3 text-right text-blue-600 font-semibold">
                                                     {totals.doctorTotal.toLocaleString()}k
@@ -3371,7 +3513,12 @@
                                                     </td>
                                                 )}
                                                 <td className={`border border-gray-300 p-3 text-right font-bold ${totals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                    {totals.netTotal.toLocaleString()}k
+                                                    <div>{totals.netTotal >= 0 ? '+' : ''}{totals.netTotal.toLocaleString()}k</div>
+                                                    {totals.examTransferTotal > 0 && (
+                                                        <div className="text-xs text-gray-500 font-normal">
+                                                            (TM: {totals.netCash >= 0 ? '+' : ''}{totals.netCash.toLocaleString()}k • CK: +{totals.netTransfer.toLocaleString()}k)
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         );
@@ -3380,7 +3527,12 @@
                                         <tr className="bg-gray-100 font-bold">
                                             <td className="border border-gray-300 p-3">TỔNG CỘNG</td>
                                             <td className="border border-gray-300 p-3 text-right text-green-600">
-                                                {monthlyTotals.examTotal.toLocaleString()}k
+                                                <div>{monthlyTotals.examTotal.toLocaleString()}k</div>
+                                                {monthlyTotals.examTransferTotal > 0 && (
+                                                    <div className="text-xs text-green-700 font-normal">
+                                                        (TM: {monthlyTotals.examCashTotal.toLocaleString()}k • CK: {monthlyTotals.examTransferTotal.toLocaleString()}k)
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="border border-gray-300 p-3 text-right text-blue-600">
                                                 {monthlyTotals.doctorTotal.toLocaleString()}k
@@ -3397,7 +3549,12 @@
                                                 </td>
                                             )}
                                             <td className={`border border-gray-300 p-3 text-right ${monthlyTotals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                {monthlyTotals.netTotal.toLocaleString()}k
+                                                <div>{monthlyTotals.netTotal >= 0 ? '+' : ''}{monthlyTotals.netTotal.toLocaleString()}k</div>
+                                                {monthlyTotals.examTransferTotal > 0 && (
+                                                    <div className="text-xs text-gray-600 font-normal">
+                                                        (TM: {monthlyTotals.netCash >= 0 ? '+' : ''}{monthlyTotals.netCash.toLocaleString()}k • CK: +{monthlyTotals.netTransfer.toLocaleString()}k)
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     )}

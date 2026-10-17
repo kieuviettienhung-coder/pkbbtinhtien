@@ -2060,7 +2060,7 @@
                         {priceLevels.map(price => {
                             const validPatientsCount = (patientDetails[price] || []).filter(p => (p.name && p.name.trim()) || (p.prescriptionNo && p.prescriptionNo.trim())).length;
                             const inputCount = parseInt(examinations?.[price] || 0);
-                            const isMismatch = selectedBranch === 'thot-not' && validPatientsCount !== inputCount;
+                            const isMismatch = validPatientsCount !== inputCount;
 
                             return (
                                 <div key={price} className="relative">

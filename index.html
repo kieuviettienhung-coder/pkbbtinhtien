@@ -254,6 +254,13 @@
                 medicines: []
             });
             const [monthlyData, setMonthlyData] = useState({});
+            const [reportSelectedYear, setReportSelectedYear] = useState(() => {
+                return parseInt(new Date().toISOString().substring(0, 4)) || 2026;
+            });
+            const [reportSelectedMonths, setReportSelectedMonths] = useState(() => {
+                const m = parseInt(new Date().toISOString().substring(5, 7));
+                return m ? [m] : [10];
+            });
             const [monthlyMedicines, setMonthlyMedicines] = useState({});
             const [yearlyData, setYearlyData] = useState({});
             const [ngaBayDailyMedicineTotal, setNgaBayDailyMedicineTotal] = useState(0);
@@ -943,15 +950,36 @@
                                     </div>
                                 )}
                             </div>
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Ngày</label>
-                                <input
-                                    type="date"
-                                    value={selectedDate}
-                                    onChange={(e) => setSelectedDate(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
-                            </div>
+                            {currentView === 'report' ? (
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Thời gian báo cáo</label>
+                                    <div className="w-full px-4 py-2 border border-blue-200 rounded-lg bg-blue-50 text-blue-900 font-semibold flex items-center justify-between text-sm sm:text-base">
+                                        <span className="flex items-center gap-1.5 truncate">
+                                            <span>📊</span>
+                                            <span>
+                                                {reportSelectedMonths.length === 1
+                                                    ? `Tháng ${reportSelectedMonths[0]}/${reportSelectedYear}`
+                                                    : `${reportSelectedMonths.length} tháng (${reportSelectedMonths.map(m => 'T' + m.toString().padStart(2, '0')).join(', ')})/${reportSelectedYear}`}
+                                            </span>
+                                        </span>
+                                        <span className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-full font-bold shadow-xs whitespace-nowrap ml-2">
+                                            Tùy chọn bên dưới ↓
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        {currentView === 'yearly' ? 'Năm báo cáo' : 'Ngày'}
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={selectedDate}
+                                        onChange={(e) => setSelectedDate(e.target.value)}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -1125,6 +1153,10 @@
                         <ReportView 
                             selectedBranch={selectedBranch}
                             selectedDate={selectedDate}
+                            selectedYear={reportSelectedYear}
+                            setSelectedYear={setReportSelectedYear}
+                            selectedMonths={reportSelectedMonths}
+                            setSelectedMonths={setReportSelectedMonths}
                             monthlyData={monthlyData}
                             ngaBayMonthlyData={ngaBayMonthlyData}
                         />
@@ -3492,7 +3524,36 @@
         }
 
         // Report View Component
-        function ReportView({ selectedBranch, selectedDate, monthlyData, ngaBayMonthlyData = {} }) {
+        function ReportView({ 
+            selectedBranch, 
+            selectedDate, 
+            selectedYear: propSelectedYear, 
+            setSelectedYear: propSetSelectedYear, 
+            selectedMonths: propSelectedMonths, 
+            setSelectedMonths: propSetSelectedMonths, 
+            monthlyData: initialMonthlyData = {}, 
+            ngaBayMonthlyData: initialNgaBayMonthlyData = {} 
+        }) {
+            const fallbackYear = parseInt(selectedDate.substring(0, 4)) || new Date().getFullYear();
+            const fallbackMonth = parseInt(selectedDate.substring(5, 7)) || (new Date().getMonth() + 1);
+
+            const [internalYear, setInternalYear] = useState(fallbackYear);
+            const [internalMonths, setInternalMonths] = useState([fallbackMonth]);
+
+            const currYear = propSelectedYear !== undefined ? propSelectedYear : internalYear;
+            const setYear = propSetSelectedYear || setInternalYear;
+
+            const currMonths = (Array.isArray(propSelectedMonths) && propSelectedMonths.length > 0)
+                ? propSelectedMonths
+                : internalMonths;
+            const setMonths = propSetSelectedMonths || setInternalMonths;
+
+            const [fetchedMonthlyData, setFetchedMonthlyData] = useState(initialMonthlyData);
+            const [fetchedNgaBayMonthlyData, setFetchedNgaBayMonthlyData] = useState(initialNgaBayMonthlyData);
+            const [isLoading, setIsLoading] = useState(false);
+            const [fromMonth, setFromMonth] = useState(1);
+            const [toMonth, setToMonth] = useState(12);
+
             const [medSearchTerm, setMedSearchTerm] = useState('');
             const [medBranchTab, setMedBranchTab] = useState(selectedBranch === 'thot-not' ? 'nga-bay' : 'current');
             const [expandedMedName, setExpandedMedName] = useState(null);
@@ -3500,6 +3561,105 @@
             const toggleExpandMed = (name) => {
                 setExpandedMedName(prev => prev === name ? null : name);
             };
+
+            const sortedSelectedMonths = [...currMonths].sort((a, b) => a - b);
+            const monthsKeyStr = sortedSelectedMonths.join(',');
+
+            // Firebase multi-month query
+            useEffect(() => {
+                if (!sortedSelectedMonths || sortedSelectedMonths.length === 0) {
+                    setFetchedMonthlyData({});
+                    setFetchedNgaBayMonthlyData({});
+                    return;
+                }
+
+                setIsLoading(true);
+
+                const fetchBranch = (branch) => {
+                    const promises = sortedSelectedMonths.map(m => {
+                        const mKey = `${currYear}${m.toString().padStart(2, '0')}`;
+                        return db.ref(`daily_v2/${branch}`)
+                            .orderByKey()
+                            .startAt(mKey + '01')
+                            .endAt(mKey + '31')
+                            .once('value');
+                    });
+                    return Promise.all(promises).then(snapshots => {
+                        const merged = {};
+                        snapshots.forEach(snap => {
+                            snap.forEach(child => {
+                                merged[child.key] = child.val();
+                            });
+                        });
+                        return merged;
+                    });
+                };
+
+                const mainFetch = fetchBranch(selectedBranch);
+                const nbFetch = selectedBranch === 'thot-not' ? fetchBranch('nga-bay') : Promise.resolve({});
+
+                Promise.all([mainFetch, nbFetch])
+                    .then(([mainData, nbData]) => {
+                        setFetchedMonthlyData(mainData);
+                        setFetchedNgaBayMonthlyData(nbData);
+                        setIsLoading(false);
+                    })
+                    .catch(err => {
+                        console.error('Lỗi khi tải dữ liệu báo cáo nhiều tháng:', err);
+                        setIsLoading(false);
+                    });
+            }, [selectedBranch, currYear, monthsKeyStr]);
+
+            const monthlyData = fetchedMonthlyData;
+            const ngaBayMonthlyData = fetchedNgaBayMonthlyData;
+
+            const toggleMonth = (m) => {
+                setMonths(prev => {
+                    const list = Array.isArray(prev) ? prev : [m];
+                    if (list.includes(m)) {
+                        if (list.length === 1) return list; // Giữ tối thiểu 1 tháng
+                        return list.filter(x => x !== m).sort((a, b) => a - b);
+                    } else {
+                        return [...list, m].sort((a, b) => a - b);
+                    }
+                });
+            };
+
+            const selectAllMonths = () => {
+                setMonths([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+            };
+
+            const selectQuarter = (q) => {
+                if (q === 1) setMonths([1, 2, 3]);
+                else if (q === 2) setMonths([4, 5, 6]);
+                else if (q === 3) setMonths([7, 8, 9]);
+                else if (q === 4) setMonths([10, 11, 12]);
+            };
+
+            const selectHalfYear = (half) => {
+                if (half === 1) setMonths([1, 2, 3, 4, 5, 6]);
+                else setMonths([7, 8, 9, 10, 11, 12]);
+            };
+
+            const selectCurrentMonth = () => {
+                const now = new Date();
+                setYear(now.getFullYear());
+                setMonths([now.getMonth() + 1]);
+            };
+
+            const applyRange = () => {
+                const start = Math.min(parseInt(fromMonth), parseInt(toMonth));
+                const end = Math.max(parseInt(fromMonth), parseInt(toMonth));
+                const arr = [];
+                for (let i = start; i <= end; i++) {
+                    arr.push(i);
+                }
+                setMonths(arr);
+            };
+
+            const monthsTitleText = sortedSelectedMonths.length === 1
+                ? `Tháng ${sortedSelectedMonths[0]}/${currYear}`
+                : `Các tháng: ${sortedSelectedMonths.map(m => `T${m < 10 ? '0' + m : m}`).join(', ')}/${currYear} (${sortedSelectedMonths.length} tháng)`;
 
             const aggregateMedicines = (dataSource) => {
                 const map = {};
@@ -3660,6 +3820,44 @@
 
             const sortedDays = Object.entries(monthlyData).sort((a, b) => a[0].localeCompare(b[0]));
 
+            const monthlyComparisonList = sortedSelectedMonths.map(m => {
+                const mKey = `${currYear}${m.toString().padStart(2, '0')}`;
+                const daysInMonth = Object.entries(monthlyData).filter(([k]) => k.startsWith(mKey));
+                const mTotals = daysInMonth.reduce((acc, [dateKey, day]) => {
+                    const dt = calculateDayTotals(day, dateKey);
+                    return {
+                        examTotal: acc.examTotal + dt.examTotal,
+                        examCashTotal: acc.examCashTotal + dt.examCashTotal,
+                        examTransferTotal: acc.examTransferTotal + dt.examTransferTotal,
+                        doctorTotal: acc.doctorTotal + dt.doctorTotal,
+                        expenseTotal: acc.expenseTotal + dt.expenseTotal,
+                        medicineTotal: acc.medicineTotal + dt.medicineTotal,
+                        transferredMedicine: acc.transferredMedicine + dt.transferredMedicine,
+                        netTotal: acc.netTotal + dt.netTotal,
+                        netCash: acc.netCash + dt.netCash,
+                        netTransfer: acc.netTransfer + dt.netTransfer
+                    };
+                }, {
+                    examTotal: 0,
+                    examCashTotal: 0,
+                    examTransferTotal: 0,
+                    doctorTotal: 0,
+                    expenseTotal: 0,
+                    medicineTotal: 0,
+                    transferredMedicine: 0,
+                    netTotal: 0,
+                    netCash: 0,
+                    netTransfer: 0
+                });
+
+                return {
+                    monthNum: m,
+                    monthName: `Tháng ${m < 10 ? '0' + m : m}`,
+                    daysCount: daysInMonth.length,
+                    totals: mTotals
+                };
+            });
+
             const exportToExcel = () => {
                 const wb = XLSX.utils.book_new();
                 const isThotNot = selectedBranch === 'thot-not';
@@ -3671,7 +3869,7 @@
 
                 const summaryData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
-                    [`Báo cáo tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`BÁO CÁO THU CHI - ${monthsTitleText.toUpperCase()}`],
                     [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     summaryHeaders,
@@ -3739,12 +3937,12 @@
                     { wch: 15 },  // Còn lại TM
                     { wch: 15 }   // Còn lại CK
                 ];
-                XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng hợp');
+                XLSX.utils.book_append_sheet(wb, wsSummary, sortedSelectedMonths.length === 1 ? `Tháng ${sortedSelectedMonths[0]}` : `Báo cáo ${sortedSelectedMonths.length} tháng`);
 
                 // Sheet 2: Bảng tổng hợp số lượng thuốc đã bán Ngã Bảy
                 const nbSummaryRows = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
-                    [`BẢNG TỔNG HỢP SỐ LƯỢNG THUỐC ĐÃ BÁN THÁNG ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`BẢNG TỔNG HỢP SỐ LƯỢNG THUỐC ĐÃ BÁN - ${monthsTitleText.toUpperCase()}`],
                     [`Chi nhánh: ${isThotNot ? 'Thuốc chuyển cho Ngã Bảy' : 'Ngã Bảy'}`],
                     [],
                     ['STT', 'Tên thuốc', 'Đơn giá (k)', 'Tổng số lượng', 'Thành tiền (k)', 'Số ngày bán', 'Chi tiết các ngày bán (Ngày: Số lượng)']
@@ -3783,7 +3981,7 @@
                 // Sheet 3: Chi tiết tiền thuốc theo ngày
                 const medicineData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
-                    [`Chi tiết tiền thuốc tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi tiết tiền thuốc - ${monthsTitleText}`],
                     [`Chi nhánh: ${isThotNot ? 'Thuốc chuyển cho Ngã Bảy' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Tên thuốc', 'Số lượng', 'Giá (k)', 'Thành tiền (k)'],
@@ -3821,7 +4019,7 @@
                 });
 
                 medicineData.push([]);
-                medicineData.push(['', 'TỔNG TIỀN THUỐC THÁNG', '', '', totalNbAmt]);
+                medicineData.push(['', 'TỔNG TIỀN THUỐC', '', '', totalNbAmt]);
 
                 const wsMedicine = XLSX.utils.aoa_to_sheet(medicineData);
                 wsMedicine['!cols'] = [
@@ -3833,10 +4031,10 @@
                 ];
                 XLSX.utils.book_append_sheet(wb, wsMedicine, isThotNot ? 'Chi tiết thuốc NB' : 'Chi tiết thuốc');
 
-                // Sheet 3: Chi tiết tiền khám
+                // Sheet 4: Chi tiết tiền khám
                 const examData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
-                    [`Chi tiết tiền khám tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi tiết tiền khám - ${monthsTitleText}`],
                     [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Giá khám (k)', 'Số ca', 'Thành tiền (k)'],
@@ -3876,7 +4074,7 @@
                 });
 
                 examData.push([]);
-                examData.push(['', 'TỔNG THÁNG', totalCasesMonth, monthlyTotals.examTotal]);
+                examData.push(['', 'TỔNG TIỀN KHÁM', totalCasesMonth, monthlyTotals.examTotal]);
 
                 const wsExam = XLSX.utils.aoa_to_sheet(examData);
                 wsExam['!cols'] = [
@@ -3887,10 +4085,10 @@
                 ];
                 XLSX.utils.book_append_sheet(wb, wsExam, 'Chi tiết khám');
 
-                // Sheet 4: Chi tiết lương bác sĩ
+                // Sheet 5: Chi tiết lương bác sĩ
                 const doctorData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
-                    [`Chi tiết lương bác sĩ tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi tiết lương bác sĩ - ${monthsTitleText}`],
                     [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Tên bác sĩ', 'Lương (k)'],
@@ -3918,7 +4116,7 @@
                 });
 
                 doctorData.push([]);
-                doctorData.push(['', 'TỔNG LƯƠNG THÁNG', monthlyTotals.doctorTotal]);
+                doctorData.push(['', 'TỔNG LƯƠNG', monthlyTotals.doctorTotal]);
 
                 const wsDoctor = XLSX.utils.aoa_to_sheet(doctorData);
                 wsDoctor['!cols'] = [
@@ -3928,10 +4126,10 @@
                 ];
                 XLSX.utils.book_append_sheet(wb, wsDoctor, 'Chi tiết lương BS');
 
-                // Sheet 5: Chi tiết chi phí
+                // Sheet 6: Chi tiết chi phí
                 const expenseData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
-                    [`Chi tiết chi phí tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi tiết chi phí - ${monthsTitleText}`],
                     [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Mô tả', 'Số tiền (k)'],
@@ -3959,7 +4157,7 @@
                 });
 
                 expenseData.push([]);
-                expenseData.push(['', 'TỔNG CHI PHÍ THÁNG', monthlyTotals.expenseTotal]);
+                expenseData.push(['', 'TỔNG CHI PHÍ', monthlyTotals.expenseTotal]);
 
                 const wsExpense = XLSX.utils.aoa_to_sheet(expenseData);
                 wsExpense['!cols'] = [
@@ -3969,29 +4167,292 @@
                 ];
                 XLSX.utils.book_append_sheet(wb, wsExpense, 'Chi tiết chi phí');
                 
-                const filename = `BaoCao_${selectedBranch}_${selectedDate.substring(0, 7)}.xlsx`;
+                const monthsFileStr = sortedSelectedMonths.map(m => 'T' + m.toString().padStart(2, '0')).join('-');
+                const filename = `BaoCao_${selectedBranch}_${monthsFileStr}_${currYear}.xlsx`;
                 XLSX.writeFile(wb, filename);
             };
 
             return (
                 <div className="space-y-6">
                     <div className="bg-white rounded-lg shadow-md p-6">
-                        <div className="flex justify-between items-center mb-4">
+                        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-5">
                             <div>
-                                <h2 className="text-2xl font-bold text-gray-800">
-                                    📊 Báo cáo tháng {selectedDate.substring(5, 7)}/{selectedDate.substring(0, 4)}
+                                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2 flex-wrap">
+                                    <span>📊 Báo cáo {monthsTitleText}</span>
                                 </h2>
-                                <h3 className="text-lg text-gray-600 mt-1">
+                                <h3 className="text-base text-gray-600 mt-1">
                                     Chi nhánh: {selectedBranch === 'nga-bay' ? '🏥 Ngã Bảy' : '🏥 Thốt Nốt'}
                                 </h3>
                             </div>
                             <button
                                 onClick={exportToExcel}
-                                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition font-bold shadow-lg flex items-center gap-2"
+                                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition font-bold shadow-lg flex items-center gap-2 self-start md:self-auto"
                             >
-                                📥 Xuất Excel
+                                📥 Xuất Excel {sortedSelectedMonths.length > 1 ? `(${sortedSelectedMonths.length} tháng)` : ''}
                             </button>
                         </div>
+
+                        {/* Multi-Month Selector Filter Panel */}
+                        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-xl p-4 sm:p-5 border border-blue-200 mb-6 shadow-sm">
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 mb-3 border-b border-blue-200/80">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="text-base font-bold text-blue-900 flex items-center gap-1.5">
+                                        🗓️ Chọn thời gian báo cáo:
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs font-bold text-gray-600">Năm:</label>
+                                        <select
+                                            value={currYear}
+                                            onChange={(e) => setYear(parseInt(e.target.value))}
+                                            className="bg-white border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-xs"
+                                        >
+                                            {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                                <option key={y} value={y}>Năm {y}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Quick selection preset buttons */}
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+                                    <button
+                                        type="button"
+                                        onClick={selectCurrentMonth}
+                                        className="px-2.5 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        ⚡ Tháng này
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectQuarter(1)}
+                                        className="px-2 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        Quý 1 (T1-3)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectQuarter(2)}
+                                        className="px-2 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        Quý 2 (T4-6)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectQuarter(3)}
+                                        className="px-2 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        Quý 3 (T7-9)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectQuarter(4)}
+                                        className="px-2 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        Quý 4 (T10-12)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectHalfYear(1)}
+                                        className="px-2 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        6T đầu
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => selectHalfYear(2)}
+                                        className="px-2 py-1 rounded-md bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 transition"
+                                    >
+                                        6T cuối
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={selectAllMonths}
+                                        className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition shadow-xs"
+                                    >
+                                        ✨ Cả năm
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 12 Month Pills (Multi-Select) */}
+                            <div className="mb-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                        Bấm vào các tháng để chọn hoặc bỏ chọn (có thể chọn nhiều tháng bất kỳ):
+                                    </span>
+                                    <span className="text-xs font-semibold text-blue-700">
+                                        Đã chọn: <span className="font-bold text-blue-900">{sortedSelectedMonths.length}</span>/12 tháng
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-12 gap-1.5 sm:gap-2">
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => {
+                                        const isSelected = currMonths.includes(m);
+                                        return (
+                                            <button
+                                                key={m}
+                                                type="button"
+                                                onClick={() => toggleMonth(m)}
+                                                className={`py-2 px-1 rounded-lg text-xs sm:text-sm font-bold transition flex flex-col items-center justify-center border shadow-xs ${
+                                                    isSelected
+                                                        ? 'bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-300/80 scale-[1.02]'
+                                                        : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300'
+                                                }`}
+                                            >
+                                                <span>Tháng {m < 10 ? `0${m}` : m}</span>
+                                                <span className="text-[10px] mt-0.5 opacity-90">
+                                                    {isSelected ? '✓ Đang chọn' : '+ Chọn'}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Range picker shortcut & Status banner */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-blue-200/80">
+                                <div className="flex items-center gap-2 flex-wrap text-xs">
+                                    <span className="font-semibold text-gray-600">Hoặc chọn khoảng từ:</span>
+                                    <select
+                                        value={fromMonth}
+                                        onChange={(e) => setFromMonth(parseInt(e.target.value))}
+                                        className="bg-white border border-gray-300 rounded px-2 py-1 font-semibold text-gray-800"
+                                    >
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                                            <option key={m} value={m}>Tháng {m < 10 ? '0' + m : m}</option>
+                                        ))}
+                                    </select>
+                                    <span className="font-semibold text-gray-600">đến:</span>
+                                    <select
+                                        value={toMonth}
+                                        onChange={(e) => setToMonth(parseInt(e.target.value))}
+                                        className="bg-white border border-gray-300 rounded px-2 py-1 font-semibold text-gray-800"
+                                    >
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                                            <option key={m} value={m}>Tháng {m < 10 ? '0' + m : m}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={applyRange}
+                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition shadow-xs"
+                                    >
+                                        Áp dụng khoảng
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    {isLoading ? (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold animate-pulse">
+                                            ⏳ Đang tải dữ liệu {sortedSelectedMonths.length} tháng...
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                                            ✓ Đã tải xong ({sortedDays.length} ngày phát sinh)
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Month-by-Month Comparison Table when multiple months are selected */}
+                        {sortedSelectedMonths.length > 1 && (
+                            <div className="mb-6 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                                <div className="bg-gradient-to-r from-blue-700 to-indigo-800 px-4 py-3 text-white flex items-center justify-between">
+                                    <div className="font-bold flex items-center gap-2">
+                                        <span>📊 Bảng đối chiếu so sánh từng tháng ({sortedSelectedMonths.length} tháng)</span>
+                                    </div>
+                                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded font-semibold">
+                                        Năm {currYear}
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-100 text-gray-700 font-semibold border-b">
+                                                <th className="p-2.5 text-left border-r">Tháng</th>
+                                                <th className="p-2.5 text-center border-r">Số ngày</th>
+                                                <th className="p-2.5 text-right border-r">💰 Khám (TM / CK)</th>
+                                                <th className="p-2.5 text-right border-r">👨‍⚕️ Lương BS</th>
+                                                <th className="p-2.5 text-right border-r">💸 Chi phí</th>
+                                                <th className="p-2.5 text-right border-r">💊 Tiền thuốc{selectedBranch === 'nga-bay' ? ' (chuyển TN)' : ''}</th>
+                                                {selectedBranch === 'thot-not' && (
+                                                    <th className="p-2.5 text-right border-r">📦 Thuốc từ NB</th>
+                                                )}
+                                                <th className="p-2.5 text-right">💵 Còn lại (TM / CK)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {monthlyComparisonList.map((item) => (
+                                                <tr key={item.monthNum} className="border-b hover:bg-blue-50 transition">
+                                                    <td className="p-2.5 font-bold text-blue-900 border-r">
+                                                        {item.monthName}
+                                                    </td>
+                                                    <td className="p-2.5 text-center text-gray-600 border-r">
+                                                        {item.daysCount} ngày
+                                                    </td>
+                                                    <td className="p-2.5 text-right border-r font-semibold text-green-700">
+                                                        <div>{item.totals.examTotal.toLocaleString()}k</div>
+                                                        {item.totals.examTransferTotal > 0 && (
+                                                            <div className="text-[11px] text-gray-500 font-normal">
+                                                                TM: {item.totals.examCashTotal.toLocaleString()}k | CK: {item.totals.examTransferTotal.toLocaleString()}k
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-2.5 text-right border-r text-blue-600 font-semibold">
+                                                        {item.totals.doctorTotal.toLocaleString()}k
+                                                    </td>
+                                                    <td className="p-2.5 text-right border-r text-orange-600 font-semibold">
+                                                        {item.totals.expenseTotal.toLocaleString()}k
+                                                    </td>
+                                                    <td className="p-2.5 text-right border-r text-purple-600 font-semibold">
+                                                        {item.totals.medicineTotal.toLocaleString()}k
+                                                    </td>
+                                                    {selectedBranch === 'thot-not' && (
+                                                        <td className="p-2.5 text-right border-r text-teal-600 font-semibold">
+                                                            +{item.totals.transferredMedicine.toLocaleString()}k
+                                                        </td>
+                                                    )}
+                                                    <td className={`p-2.5 text-right font-bold ${item.totals.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                        <div>{item.totals.netTotal >= 0 ? '+' : ''}{item.totals.netTotal.toLocaleString()}k</div>
+                                                        {item.totals.examTransferTotal > 0 && (
+                                                            <div className="text-[11px] text-gray-500 font-normal">
+                                                                TM: {item.totals.netCash >= 0 ? '+' : ''}{item.totals.netCash.toLocaleString()}k | CK: +{item.totals.netTransfer.toLocaleString()}k
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            <tr className="bg-blue-50/80 font-bold border-t-2 border-blue-300">
+                                                <td className="p-2.5 text-blue-900 border-r">TỔNG CỘNG</td>
+                                                <td className="p-2.5 text-center text-blue-900 border-r">{sortedDays.length} ngày</td>
+                                                <td className="p-2.5 text-right text-green-700 border-r font-bold">
+                                                    <div>{monthlyTotals.examTotal.toLocaleString()}k</div>
+                                                    {monthlyTotals.examTransferTotal > 0 && (
+                                                        <div className="text-[11px] text-gray-600 font-normal">
+                                                            TM: {monthlyTotals.examCashTotal.toLocaleString()}k | CK: {monthlyTotals.examTransferTotal.toLocaleString()}k
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="p-2.5 text-right text-blue-600 border-r font-bold">{monthlyTotals.doctorTotal.toLocaleString()}k</td>
+                                                <td className="p-2.5 text-right text-orange-600 border-r font-bold">{monthlyTotals.expenseTotal.toLocaleString()}k</td>
+                                                <td className="p-2.5 text-right text-purple-600 border-r font-bold">{monthlyTotals.medicineTotal.toLocaleString()}k</td>
+                                                {selectedBranch === 'thot-not' && (
+                                                    <td className="p-2.5 text-right text-teal-600 border-r font-bold">+{monthlyTotals.transferredMedicine.toLocaleString()}k</td>
+                                                )}
+                                                <td className={`p-2.5 text-right font-bold ${monthlyTotals.netTotal >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                    <div>{monthlyTotals.netTotal >= 0 ? '+' : ''}{monthlyTotals.netTotal.toLocaleString()}k</div>
+                                                    {monthlyTotals.examTransferTotal > 0 && (
+                                                        <div className="text-[11px] text-gray-600 font-normal">
+                                                            TM: {monthlyTotals.netCash >= 0 ? '+' : ''}{monthlyTotals.netCash.toLocaleString()}k | CK: +{monthlyTotals.netTransfer.toLocaleString()}k
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Monthly Summary */}
                         <div className={`grid grid-cols-1 md:grid-cols-2 ${selectedBranch === 'thot-not' ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-4 mb-6`}>
@@ -4074,52 +4535,64 @@
                                             </td>
                                         </tr>
                                     )}
-                                    {sortedDays.map(([dateKey, dayData]) => {
+                                    {sortedDays.map(([dateKey, dayData], index) => {
                                         const totals = calculateDayTotals(dayData, dateKey);
+                                        const currentMonthNum = dateKey.substring(4, 6);
+                                        const prevMonthNum = index > 0 ? sortedDays[index - 1][0].substring(4, 6) : null;
+                                        const isNewMonth = sortedSelectedMonths.length > 1 && currentMonthNum !== prevMonthNum;
                                         return (
-                                            <tr key={dateKey} className="hover:bg-blue-50 transition">
-                                                <td className="border border-gray-300 p-3 font-semibold">{dayData.date}</td>
-                                                <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
-                                                    <div className="text-base">{totals.examTotal.toLocaleString()}k</div>
-                                                    {totals.examTransferTotal > 0 && (
-                                                        <div className="flex flex-col sm:flex-row sm:justify-end gap-1 mt-1 text-xs font-bold">
-                                                            <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                                💵 TM: {totals.examCashTotal.toLocaleString()}k
-                                                            </span>
-                                                            <span className="inline-block px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
-                                                                💳 CK: {totals.examTransferTotal.toLocaleString()}k
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </td>
-                                                <td className="border border-gray-300 p-3 text-right text-blue-600 font-semibold">
-                                                    {totals.doctorTotal.toLocaleString()}k
-                                                </td>
-                                                <td className="border border-gray-300 p-3 text-right text-orange-600 font-semibold">
-                                                    {totals.expenseTotal.toLocaleString()}k
-                                                </td>
-                                                <td className="border border-gray-300 p-3 text-right text-purple-600 font-semibold">
-                                                    {totals.medicineTotal.toLocaleString()}k
-                                                </td>
-                                                {selectedBranch === 'thot-not' && (
-                                                    <td className="border border-gray-300 p-3 text-right text-teal-600 font-semibold">
-                                                        +{totals.transferredMedicine.toLocaleString()}k
-                                                    </td>
+                                            <React.Fragment key={dateKey}>
+                                                {isNewMonth && (
+                                                    <tr className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white font-bold">
+                                                        <td colSpan={selectedBranch === 'thot-not' ? 7 : 6} className="p-2.5 px-4 text-left text-sm uppercase tracking-wider">
+                                                            🗓️ THÁNG {parseInt(currentMonthNum)}/{dateKey.substring(0, 4)}
+                                                        </td>
+                                                    </tr>
                                                 )}
-                                                <td className={`border border-gray-300 p-3 text-right font-bold ${totals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                    <div className="text-base">{totals.netTotal >= 0 ? '+' : ''}{totals.netTotal.toLocaleString()}k</div>
-                                                    {totals.examTransferTotal > 0 && (
-                                                        <div className="flex flex-col sm:flex-row sm:justify-end gap-1 mt-1 text-xs font-bold">
-                                                            <span className={`inline-block px-1.5 py-0.5 rounded border ${totals.netCash >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                                                💵 TM: {totals.netCash >= 0 ? '+' : ''}{totals.netCash.toLocaleString()}k
-                                                            </span>
-                                                            <span className="inline-block px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
-                                                                💳 CK: +{totals.netTransfer.toLocaleString()}k
-                                                            </span>
-                                                        </div>
+                                                <tr className="hover:bg-blue-50 transition">
+                                                    <td className="border border-gray-300 p-3 font-semibold">{dayData.date}</td>
+                                                    <td className="border border-gray-300 p-3 text-right text-green-600 font-bold">
+                                                        <div className="text-base">{totals.examTotal.toLocaleString()}k</div>
+                                                        {totals.examTransferTotal > 0 && (
+                                                            <div className="flex flex-col sm:flex-row sm:justify-end gap-1 mt-1 text-xs font-bold">
+                                                                <span className="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                                    💵 TM: {totals.examCashTotal.toLocaleString()}k
+                                                                </span>
+                                                                <span className="inline-block px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                                                                    💳 CK: {totals.examTransferTotal.toLocaleString()}k
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="border border-gray-300 p-3 text-right text-blue-600 font-semibold">
+                                                        {totals.doctorTotal.toLocaleString()}k
+                                                    </td>
+                                                    <td className="border border-gray-300 p-3 text-right text-orange-600 font-semibold">
+                                                        {totals.expenseTotal.toLocaleString()}k
+                                                    </td>
+                                                    <td className="border border-gray-300 p-3 text-right text-purple-600 font-semibold">
+                                                        {totals.medicineTotal.toLocaleString()}k
+                                                    </td>
+                                                    {selectedBranch === 'thot-not' && (
+                                                        <td className="border border-gray-300 p-3 text-right text-teal-600 font-semibold">
+                                                            +{totals.transferredMedicine.toLocaleString()}k
+                                                        </td>
                                                     )}
-                                                </td>
-                                            </tr>
+                                                    <td className={`border border-gray-300 p-3 text-right font-bold ${totals.netTotal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                        <div className="text-base">{totals.netTotal >= 0 ? '+' : ''}{totals.netTotal.toLocaleString()}k</div>
+                                                        {totals.examTransferTotal > 0 && (
+                                                            <div className="flex flex-col sm:flex-row sm:justify-end gap-1 mt-1 text-xs font-bold">
+                                                                <span className={`inline-block px-1.5 py-0.5 rounded border ${totals.netCash >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                                                    💵 TM: {totals.netCash >= 0 ? '+' : ''}{totals.netCash.toLocaleString()}k
+                                                                </span>
+                                                                <span className="inline-block px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                                                                    💳 CK: +{totals.netTransfer.toLocaleString()}k
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            </React.Fragment>
                                         );
                                     })}
                                     {sortedDays.length > 0 && (
@@ -4181,7 +4654,7 @@
                                         💊 Tổng hợp số lượng các loại thuốc đã bán
                                     </h3>
                                     <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                        Tháng {selectedDate.substring(5, 7)}/{selectedDate.substring(0, 4)}
+                                        {monthsTitleText}
                                     </span>
                                 </div>
                                 <p className="text-sm text-gray-500 mt-1">

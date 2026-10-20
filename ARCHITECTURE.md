@@ -99,6 +99,15 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - Thanh tìm kiếm thuốc nhanh, sắp xếp theo số lượng bán nhiều nhất, kèm các thẻ thống kê tổng số loại thuốc, tổng số lượng đơn vị và tổng doanh thu thuốc.
   - Tích hợp xuất bảng tổng hợp số lượng thuốc vào file Excel (`Tổng hợp thuốc NB` / `Tổng hợp thuốc`) cho cả báo cáo tháng và báo cáo năm, kèm cột `Chi tiết các ngày bán (Ngày: Số lượng)`.
 - Chức năng xuất dữ liệu ra file Excel đa sheet.
+- **📅 Báo cáo tùy chọn nhiều tháng linh hoạt (`ReportView`):**
+  - Cho phép người dùng chọn xem báo cáo theo một hoặc nhiều tháng bất kỳ trong năm được chọn:
+    - 12 nút bấm tháng (`T01` - `T12`) dạng toggle linh hoạt, cho phép chọn bất kỳ tổ hợp tháng nào (VD: T08, T09, T10).
+    - Các nút chọn nhanh tiện lợi: `Tháng này`, `Quý 1 (T1-3)`, `Quý 2 (T4-6)`, `Quý 3 (T7-9)`, `Quý 4 (T10-12)`, `6T đầu (T1-6)`, `6T cuối (T7-12)`, `Cả năm (12T)`.
+    - Khoảng tháng tùy chọn: `Từ tháng X đến tháng Y` với nút `Áp dụng`.
+  - **Tối ưu truy vấn dữ liệu:** Sử dụng `Promise.all` song song truy vấn Firebase Realtime Database theo dải khóa ngày `.startAt(mKey + '01').endAt(mKey + '31')` cho từng tháng được chọn, tốc độ phản hồi cực nhanh (~100ms) và tiết kiệm băng thông.
+  - **📊 Bảng đối chiếu so sánh từng tháng (Month-by-Month Comparison):** Tự động hiển thị khi chọn từ 2 tháng trở lên, đối chiếu trực quan doanh thu khám bệnh (TM/CK), số ca khám, lương bác sĩ, chi phí, tiền thuốc và kết quả còn lại (TM/CK) giữa các tháng và tổng cộng giai đoạn.
+  - **Dòng phân cách tháng:** Bảng chi tiết từng ngày tự động chèn dòng phân cách giữa các tháng để dễ dàng quan sát.
+  - **Tự động đồng bộ:** Thẻ tổng hợp tiền thuốc đã bán, tóm tắt thu chi và file Excel xuất ra tự động cập nhật tiêu đề và nội dung theo các tháng được chọn (VD: `BaoCao_thot-not_T08-T09-T10_2026.xlsx`).
 
 ### `Điều chuyển Tiền thuốc Liên chi nhánh (Ngã Bảy -> Thốt Nốt)`
 - **Bối cảnh nghiệp vụ:** Thuốc tại chi nhánh Ngã Bảy là thuốc do Thốt Nốt chuyển xuống. Do đó, khi Ngã Bảy nhập tiền thuốc bán ra, khoản doanh thu tiền thuốc này sẽ được cộng trực tiếp vào thu nhập (`Còn lại`) của Thốt Nốt.

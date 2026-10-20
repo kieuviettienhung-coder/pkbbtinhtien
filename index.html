@@ -187,7 +187,20 @@
                 }
                 if (Array.isArray(data.expenses) && data.expenses.length > 0) {
                     const details = data.expenses.filter(e => e.description && parseFloat(e.amount) > 0).map(e => `${e.description} ${fmt(parseFloat(e.amount))}`);
-                    if (details.length) msg += `   ┗ ${details.join(', ')}\n`;
+                    if (details.length) msg += `   ┗ Chi: ${details.join(', ')}\n`;
+                }
+                if (Array.isArray(data.medicines) && data.medicines.length > 0) {
+                    const validMeds = data.medicines.filter(m => m.name && parseFloat(m.quantity || 0) > 0);
+                    if (validMeds.length > 0) {
+                        const medDetails = validMeds.map(m => `${m.name} (${m.quantity})`);
+                        msg += `   ┗ 💊 Thuốc bán: ${medDetails.join(', ')}\n`;
+                    }
+                }
+                if (isThotNot && transferredFromNB > 0 && nbBranch && nbBranch.data && Array.isArray(nbBranch.data.medicines)) {
+                    const nbMeds = nbBranch.data.medicines.filter(m => m.name && parseFloat(m.quantity || 0) > 0);
+                    if (nbMeds.length > 0) {
+                        msg += `   ┗ 📦 Thuốc NB bán: ${nbMeds.map(m => `${m.name} (${m.quantity})`).join(', ')}\n`;
+                    }
                 }
 
                 gExam += exam; gDoctor += doctor; gExpense += expense; gMedicine += medicine; gCases += cases;
@@ -1139,6 +1152,61 @@
         // Yearly Report View Component
         function YearlyReportView({ selectedBranch, selectedDate, yearlyData, ngaBayYearlyData = {} }) {
             const year = selectedDate.substring(0, 4);
+            const [medSearchTerm, setMedSearchTerm] = useState('');
+            const [medBranchTab, setMedBranchTab] = useState(selectedBranch === 'thot-not' ? 'nga-bay' : 'current');
+
+            const aggregateYearlyMedicines = (dataSource) => {
+                const map = {};
+                Object.entries(dataSource || {}).forEach(([dateKey, dayData]) => {
+                    if (!dayData || !Array.isArray(dayData.medicines)) return;
+                    const dateStr = dayData.date || `${dateKey.substring(6, 8)}/${dateKey.substring(4, 6)}`;
+                    dayData.medicines.forEach(m => {
+                        if (!m || !m.name) return;
+                        const name = m.name.trim();
+                        if (!name) return;
+                        const qty = parseFloat(m.quantity || 0);
+                        const price = parseFloat(m.price || 0);
+                        if (qty <= 0 && price <= 0) return;
+                        
+                        if (!map[name]) {
+                            map[name] = {
+                                name,
+                                price: price,
+                                totalQuantity: 0,
+                                totalAmount: 0,
+                                days: new Set()
+                            };
+                        }
+                        map[name].totalQuantity += qty;
+                        map[name].totalAmount += (qty * price);
+                        if (price > 0 && (!map[name].price || map[name].price === 0)) {
+                            map[name].price = price;
+                        }
+                        map[name].days.add(dateStr);
+                    });
+                });
+
+                return Object.values(map).map(item => ({
+                    ...item,
+                    daysCount: item.days.size,
+                    daysList: Array.from(item.days)
+                })).sort((a, b) => b.totalQuantity - a.totalQuantity || b.totalAmount - a.totalAmount);
+            };
+
+            const ngaBayYearlyMeds = aggregateYearlyMedicines(selectedBranch === 'thot-not' ? ngaBayYearlyData : yearlyData);
+            const thotNotYearlyMeds = aggregateYearlyMedicines(yearlyData);
+            const activeYearlyMeds = selectedBranch === 'thot-not'
+                ? (medBranchTab === 'nga-bay' ? ngaBayYearlyMeds : thotNotYearlyMeds)
+                : ngaBayYearlyMeds;
+
+            const filteredYearlyMeds = activeYearlyMeds.filter(m =>
+                m.name.toLowerCase().includes(medSearchTerm.toLowerCase().trim())
+            );
+
+            const totalYearlyMedQty = activeYearlyMeds.reduce((sum, m) => sum + m.totalQuantity, 0);
+            const totalYearlyMedAmount = activeYearlyMeds.reduce((sum, m) => sum + m.totalAmount, 0);
+            const totalFilteredYearlyQty = filteredYearlyMeds.reduce((sum, m) => sum + m.totalQuantity, 0);
+            const totalFilteredYearlyAmount = filteredYearlyMeds.reduce((sum, m) => sum + m.totalAmount, 0);
 
             // Group data by month
             const monthlyGroups = {};
@@ -1328,6 +1396,43 @@
                 ];
 
                 XLSX.utils.book_append_sheet(wb, ws, `Năm ${year}`);
+
+                // Sheet: Bảng tổng hợp số lượng thuốc đã bán Ngã Bảy trong năm
+                const nbYearlySummaryRows = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`BẢNG TỔNG HỢP SỐ LƯỢNG THUỐC ĐÃ BÁN NĂM ${year}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thuốc chuyển cho Ngã Bảy' : 'Ngã Bảy'}`],
+                    [],
+                    ['STT', 'Tên thuốc', 'Đơn giá (k)', 'Tổng số lượng', 'Thành tiền (k)', 'Số ngày bán']
+                ];
+
+                ngaBayYearlyMeds.forEach((m, idx) => {
+                    nbYearlySummaryRows.push([
+                        idx + 1,
+                        m.name,
+                        m.price,
+                        m.totalQuantity,
+                        m.totalAmount,
+                        m.daysCount
+                    ]);
+                });
+
+                const totalNbYearlyQty = ngaBayYearlyMeds.reduce((sum, m) => sum + m.totalQuantity, 0);
+                const totalNbYearlyAmt = ngaBayYearlyMeds.reduce((sum, m) => sum + m.totalAmount, 0);
+                nbYearlySummaryRows.push([]);
+                nbYearlySummaryRows.push(['', 'TỔNG CỘNG', '', totalNbYearlyQty, totalNbYearlyAmt, ngaBayYearlyMeds.length + ' loại']);
+
+                const wsNbYearly = XLSX.utils.aoa_to_sheet(nbYearlySummaryRows);
+                wsNbYearly['!cols'] = [
+                    { wch: 6 },
+                    { wch: 30 },
+                    { wch: 14 },
+                    { wch: 16 },
+                    { wch: 16 },
+                    { wch: 14 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsNbYearly, isThotNot ? 'Tổng hợp thuốc NB' : 'Tổng hợp thuốc');
+
                 XLSX.writeFile(wb, `BaoCaoNam_${selectedBranch}_${year}.xlsx`);
             };
 
@@ -1524,6 +1629,162 @@
                                             )}
                                         </td>
                                     </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Yearly Medicine Breakdown Section */}
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                        💊 Tổng hợp số lượng các loại thuốc đã bán trong năm
+                                    </h3>
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                        Năm {year}
+                                    </span>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {selectedBranch === 'thot-not'
+                                        ? (medBranchTab === 'nga-bay'
+                                            ? 'Chi tiết số lượng các loại thuốc do Thốt Nốt chuyển xuống và đã bán tại Ngã Bảy trong năm'
+                                            : 'Chi tiết số lượng các loại thuốc bán trực tiếp tại quầy Thốt Nốt trong năm')
+                                        : 'Tổng số lượng và doanh thu từng loại thuốc bán ra tại phòng khám Ngã Bảy trong năm'}
+                                </p>
+                            </div>
+
+                            {selectedBranch === 'thot-not' && (
+                                <div className="inline-flex bg-gray-100 p-1 rounded-xl self-start md:self-auto border border-gray-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMedBranchTab('nga-bay')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition flex items-center gap-1.5 ${
+                                            medBranchTab === 'nga-bay'
+                                                ? 'bg-purple-600 text-white shadow'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        📦 Thuốc bán cho Ngã Bảy ({ngaBayYearlyMeds.length} loại)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMedBranchTab('thot-not')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition flex items-center gap-1.5 ${
+                                            medBranchTab === 'thot-not'
+                                                ? 'bg-teal-600 text-white shadow'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        💊 Thuốc tại Thốt Nốt ({thotNotYearlyMeds.length} loại)
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Summary stat badges */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                            <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold text-purple-700">Tổng số loại thuốc trong năm</p>
+                                    <p className="text-xl font-bold text-purple-900">{activeYearlyMeds.length} <span className="text-xs font-normal text-purple-700">loại</span></p>
+                                </div>
+                                <span className="text-3xl">📋</span>
+                            </div>
+                            <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold text-blue-700">Tổng số lượng đã bán</p>
+                                    <p className="text-xl font-bold text-blue-900">{totalYearlyMedQty.toLocaleString()} <span className="text-xs font-normal text-blue-700">đơn vị</span></p>
+                                </div>
+                                <span className="text-3xl">🔢</span>
+                            </div>
+                            <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold text-emerald-700">Tổng doanh thu thuốc</p>
+                                    <p className="text-xl font-bold text-emerald-900">+{totalYearlyMedAmount.toLocaleString()}k</p>
+                                </div>
+                                <span className="text-3xl">💰</span>
+                            </div>
+                        </div>
+
+                        {/* Search bar */}
+                        <div className="mb-4">
+                            <input
+                                type="text"
+                                placeholder="🔍 Tìm kiếm nhanh tên thuốc..."
+                                value={medSearchTerm}
+                                onChange={(e) => setMedSearchTerm(e.target.value)}
+                                className="w-full sm:max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none text-sm"
+                            />
+                        </div>
+
+                        {/* Medicine Table */}
+                        <div className="overflow-x-auto rounded-lg border border-gray-200">
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white text-sm">
+                                        <th className="p-3 text-center w-12 border border-purple-600">STT</th>
+                                        <th className="p-3 text-left border border-purple-600">💊 Tên thuốc</th>
+                                        <th className="p-3 text-right border border-purple-600">Đơn giá</th>
+                                        <th className="p-3 text-right border border-purple-600">Tổng số lượng bán</th>
+                                        <th className="p-3 text-right border border-purple-600">Thành tiền</th>
+                                        <th className="p-3 text-center border border-purple-600">Số ngày bán</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredYearlyMeds.length === 0 ? (
+                                        <tr>
+                                            <td colSpan="6" className="p-8 text-center text-gray-400">
+                                                {medSearchTerm ? 'Không tìm thấy thuốc khớp với từ khóa tìm kiếm' : 'Chưa có dữ liệu thuốc trong năm này'}
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredYearlyMeds.map((med, index) => (
+                                            <tr key={med.name} className="hover:bg-purple-50 transition border-b border-gray-200">
+                                                <td className="p-3 text-center text-gray-500 font-medium text-sm">
+                                                    {index + 1}
+                                                </td>
+                                                <td className="p-3 font-bold text-gray-800 text-sm sm:text-base">
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        💊 {med.name}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-right text-gray-600 font-semibold text-sm">
+                                                    {med.price ? `${med.price.toLocaleString()}k` : '-'}
+                                                </td>
+                                                <td className="p-3 text-right font-bold text-purple-700 text-base">
+                                                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold border border-purple-200">
+                                                        {med.totalQuantity.toLocaleString()}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-right font-bold text-emerald-700 text-base">
+                                                    +{med.totalAmount.toLocaleString()}k
+                                                </td>
+                                                <td className="p-3 text-center text-gray-500 text-xs font-medium">
+                                                    <span className="px-2 py-0.5 rounded bg-gray-100 border text-gray-600">
+                                                        {med.daysCount} ngày
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                    {filteredYearlyMeds.length > 0 && (
+                                        <tr className="bg-purple-50 font-bold text-purple-900 border-t-2 border-purple-300">
+                                            <td colSpan="3" className="p-3 text-right font-bold">
+                                                TỔNG CỘNG:
+                                            </td>
+                                            <td className="p-3 text-right text-base text-purple-800 font-bold">
+                                                {totalFilteredYearlyQty.toLocaleString()}
+                                            </td>
+                                            <td className="p-3 text-right text-base text-emerald-700 font-bold">
+                                                +{totalFilteredYearlyAmount.toLocaleString()}k
+                                            </td>
+                                            <td className="p-3 text-center text-xs text-gray-500">
+                                                {filteredYearlyMeds.length} loại
+                                            </td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -3127,6 +3388,62 @@
 
         // Report View Component
         function ReportView({ selectedBranch, selectedDate, monthlyData, ngaBayMonthlyData = {} }) {
+            const [medSearchTerm, setMedSearchTerm] = useState('');
+            const [medBranchTab, setMedBranchTab] = useState(selectedBranch === 'thot-not' ? 'nga-bay' : 'current');
+
+            const aggregateMedicines = (dataSource) => {
+                const map = {};
+                Object.entries(dataSource || {}).forEach(([dateKey, dayData]) => {
+                    if (!dayData || !Array.isArray(dayData.medicines)) return;
+                    const dateStr = dayData.date || `${dateKey.substring(6, 8)}/${dateKey.substring(4, 6)}`;
+                    dayData.medicines.forEach(m => {
+                        if (!m || !m.name) return;
+                        const name = m.name.trim();
+                        if (!name) return;
+                        const qty = parseFloat(m.quantity || 0);
+                        const price = parseFloat(m.price || 0);
+                        if (qty <= 0 && price <= 0) return;
+                        
+                        if (!map[name]) {
+                            map[name] = {
+                                name,
+                                price: price,
+                                totalQuantity: 0,
+                                totalAmount: 0,
+                                days: new Set()
+                            };
+                        }
+                        map[name].totalQuantity += qty;
+                        map[name].totalAmount += (qty * price);
+                        if (price > 0 && (!map[name].price || map[name].price === 0)) {
+                            map[name].price = price;
+                        }
+                        map[name].days.add(dateStr);
+                    });
+                });
+
+                return Object.values(map).map(item => ({
+                    ...item,
+                    daysCount: item.days.size,
+                    daysList: Array.from(item.days)
+                })).sort((a, b) => b.totalQuantity - a.totalQuantity || b.totalAmount - a.totalAmount);
+            };
+
+            const ngaBayMedsSummary = aggregateMedicines(selectedBranch === 'thot-not' ? ngaBayMonthlyData : monthlyData);
+            const thotNotMedsSummary = aggregateMedicines(monthlyData);
+            const activeMeds = selectedBranch === 'thot-not' 
+                ? (medBranchTab === 'nga-bay' ? ngaBayMedsSummary : thotNotMedsSummary)
+                : ngaBayMedsSummary;
+
+            const filteredActiveMeds = activeMeds.filter(m => 
+                m.name.toLowerCase().includes(medSearchTerm.toLowerCase().trim())
+            );
+
+            const totalActiveQty = activeMeds.reduce((sum, m) => sum + m.totalQuantity, 0);
+            const totalActiveAmount = activeMeds.reduce((sum, m) => sum + m.totalAmount, 0);
+            const totalFilteredQty = filteredActiveMeds.reduce((sum, m) => sum + m.totalQuantity, 0);
+            const totalFilteredAmount = filteredActiveMeds.reduce((sum, m) => sum + m.totalAmount, 0);
+
             const getTransferredMedicineForDay = (dateKey) => {
                 if (selectedBranch !== 'thot-not') return 0;
                 const nbDay = ngaBayMonthlyData[dateKey];
@@ -3298,21 +3615,61 @@
                 ];
                 XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng hợp');
 
-                // Sheet 2: Chi tiết tiền thuốc
+                // Sheet 2: Bảng tổng hợp số lượng thuốc đã bán Ngã Bảy
+                const nbSummaryRows = [
+                    ['PHÒNG KHÁM BÁCH BẢO'],
+                    [`BẢNG TỔNG HỢP SỐ LƯỢNG THUỐC ĐÃ BÁN THÁNG ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thuốc chuyển cho Ngã Bảy' : 'Ngã Bảy'}`],
+                    [],
+                    ['STT', 'Tên thuốc', 'Đơn giá (k)', 'Tổng số lượng', 'Thành tiền (k)', 'Số ngày bán']
+                ];
+
+                ngaBayMedsSummary.forEach((m, idx) => {
+                    nbSummaryRows.push([
+                        idx + 1,
+                        m.name,
+                        m.price,
+                        m.totalQuantity,
+                        m.totalAmount,
+                        m.daysCount
+                    ]);
+                });
+
+                const totalNbQty = ngaBayMedsSummary.reduce((sum, m) => sum + m.totalQuantity, 0);
+                const totalNbAmt = ngaBayMedsSummary.reduce((sum, m) => sum + m.totalAmount, 0);
+                nbSummaryRows.push([]);
+                nbSummaryRows.push(['', 'TỔNG CỘNG', '', totalNbQty, totalNbAmt, ngaBayMedsSummary.length + ' loại']);
+
+                const wsNbSummary = XLSX.utils.aoa_to_sheet(nbSummaryRows);
+                wsNbSummary['!cols'] = [
+                    { wch: 6 },
+                    { wch: 30 },
+                    { wch: 14 },
+                    { wch: 16 },
+                    { wch: 16 },
+                    { wch: 14 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsNbSummary, isThotNot ? 'Tổng hợp thuốc NB' : 'Tổng hợp thuốc');
+
+                // Sheet 3: Chi tiết tiền thuốc theo ngày
                 const medicineData = [
                     ['PHÒNG KHÁM BÁCH BẢO'],
                     [`Chi tiết tiền thuốc tháng ${selectedDate.substring(5, 7)}/${selectedDate.substring(0, 4)}`],
-                    [`Chi nhánh: ${isThotNot ? 'Thốt Nốt' : 'Ngã Bảy'}`],
+                    [`Chi nhánh: ${isThotNot ? 'Thuốc chuyển cho Ngã Bảy' : 'Ngã Bảy'}`],
                     [],
                     ['Ngày', 'Tên thuốc', 'Số lượng', 'Giá (k)', 'Thành tiền (k)'],
                 ];
 
-                sortedDays.forEach(([dateKey, dayData]) => {
+                const medDaysSource = isThotNot 
+                    ? Object.entries(ngaBayMonthlyData).sort((a, b) => a[0].localeCompare(b[0]))
+                    : sortedDays;
+
+                medDaysSource.forEach(([dateKey, dayData]) => {
                     if (dayData.medicines && dayData.medicines.length > 0) {
                         dayData.medicines.forEach((med, index) => {
                             const total = parseFloat(med.quantity || 0) * parseFloat(med.price || 0);
                             medicineData.push([
-                                index === 0 ? dayData.date : '',
+                                index === 0 ? (dayData.date || dateKey) : '',
                                 med.name,
                                 med.quantity,
                                 med.price,
@@ -3325,7 +3682,7 @@
                         }, 0);
                         medicineData.push([
                             '',
-                            `Tổng ${dayData.date}`,
+                            `Tổng ${dayData.date || dateKey}`,
                             '',
                             '',
                             dayMedicineTotal
@@ -3335,7 +3692,7 @@
                 });
 
                 medicineData.push([]);
-                medicineData.push(['', 'TỔNG TIỀN THUỐC THÁNG', '', '', monthlyTotals.medicineTotal]);
+                medicineData.push(['', 'TỔNG TIỀN THUỐC THÁNG', '', '', totalNbAmt]);
 
                 const wsMedicine = XLSX.utils.aoa_to_sheet(medicineData);
                 wsMedicine['!cols'] = [
@@ -3345,7 +3702,7 @@
                     { wch: 12 },
                     { wch: 15 }
                 ];
-                XLSX.utils.book_append_sheet(wb, wsMedicine, 'Chi tiết thuốc');
+                XLSX.utils.book_append_sheet(wb, wsMedicine, isThotNot ? 'Chi tiết thuốc NB' : 'Chi tiết thuốc');
 
                 // Sheet 3: Chi tiết tiền khám
                 const examData = [
@@ -3678,6 +4035,162 @@
                                                         </span>
                                                     </div>
                                                 )}
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Medicine Breakdown Section */}
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                        💊 Tổng hợp số lượng các loại thuốc đã bán
+                                    </h3>
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                        Tháng {selectedDate.substring(5, 7)}/{selectedDate.substring(0, 4)}
+                                    </span>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {selectedBranch === 'thot-not'
+                                        ? (medBranchTab === 'nga-bay'
+                                            ? 'Chi tiết số lượng các loại thuốc do Thốt Nốt chuyển xuống và đã bán tại Ngã Bảy'
+                                            : 'Chi tiết số lượng các loại thuốc bán trực tiếp tại quầy Thốt Nốt')
+                                        : 'Tổng số lượng và doanh thu từng loại thuốc bán ra tại phòng khám Ngã Bảy'}
+                                </p>
+                            </div>
+
+                            {selectedBranch === 'thot-not' && (
+                                <div className="inline-flex bg-gray-100 p-1 rounded-xl self-start md:self-auto border border-gray-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMedBranchTab('nga-bay')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition flex items-center gap-1.5 ${
+                                            medBranchTab === 'nga-bay'
+                                                ? 'bg-purple-600 text-white shadow'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        📦 Thuốc bán cho Ngã Bảy ({ngaBayMedsSummary.length} loại)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMedBranchTab('thot-not')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition flex items-center gap-1.5 ${
+                                            medBranchTab === 'thot-not'
+                                                ? 'bg-teal-600 text-white shadow'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        💊 Thuốc tại Thốt Nốt ({thotNotMedsSummary.length} loại)
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Summary stat badges */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                            <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold text-purple-700">Tổng số loại thuốc</p>
+                                    <p className="text-xl font-bold text-purple-900">{activeMeds.length} <span className="text-xs font-normal text-purple-700">loại</span></p>
+                                </div>
+                                <span className="text-3xl">📋</span>
+                            </div>
+                            <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold text-blue-700">Tổng số lượng đã bán</p>
+                                    <p className="text-xl font-bold text-blue-900">{totalActiveQty.toLocaleString()} <span className="text-xs font-normal text-blue-700">đơn vị</span></p>
+                                </div>
+                                <span className="text-3xl">🔢</span>
+                            </div>
+                            <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold text-emerald-700">Tổng tiền thuốc</p>
+                                    <p className="text-xl font-bold text-emerald-900">+{totalActiveAmount.toLocaleString()}k</p>
+                                </div>
+                                <span className="text-3xl">💰</span>
+                            </div>
+                        </div>
+
+                        {/* Search bar */}
+                        <div className="mb-4">
+                            <input
+                                type="text"
+                                placeholder="🔍 Tìm kiếm nhanh tên thuốc..."
+                                value={medSearchTerm}
+                                onChange={(e) => setMedSearchTerm(e.target.value)}
+                                className="w-full sm:max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none text-sm"
+                            />
+                        </div>
+
+                        {/* Medicine Table */}
+                        <div className="overflow-x-auto rounded-lg border border-gray-200">
+                            <table className="w-full border-collapse">
+                                <thead>
+                                    <tr className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white text-sm">
+                                        <th className="p-3 text-center w-12 border border-purple-600">STT</th>
+                                        <th className="p-3 text-left border border-purple-600">💊 Tên thuốc</th>
+                                        <th className="p-3 text-right border border-purple-600">Đơn giá</th>
+                                        <th className="p-3 text-right border border-purple-600">Tổng số lượng bán</th>
+                                        <th className="p-3 text-right border border-purple-600">Thành tiền</th>
+                                        <th className="p-3 text-center border border-purple-600">Số ngày bán</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredActiveMeds.length === 0 ? (
+                                        <tr>
+                                            <td colSpan="6" className="p-8 text-center text-gray-400">
+                                                {medSearchTerm ? 'Không tìm thấy thuốc khớp với từ khóa tìm kiếm' : 'Chưa có dữ liệu thuốc trong tháng này'}
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredActiveMeds.map((med, index) => (
+                                            <tr key={med.name} className="hover:bg-purple-50 transition border-b border-gray-200">
+                                                <td className="p-3 text-center text-gray-500 font-medium text-sm">
+                                                    {index + 1}
+                                                </td>
+                                                <td className="p-3 font-bold text-gray-800 text-sm sm:text-base">
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        💊 {med.name}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-right text-gray-600 font-semibold text-sm">
+                                                    {med.price ? `${med.price.toLocaleString()}k` : '-'}
+                                                </td>
+                                                <td className="p-3 text-right font-bold text-purple-700 text-base">
+                                                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold border border-purple-200">
+                                                        {med.totalQuantity.toLocaleString()}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-right font-bold text-emerald-700 text-base">
+                                                    +{med.totalAmount.toLocaleString()}k
+                                                </td>
+                                                <td className="p-3 text-center text-gray-500 text-xs font-medium">
+                                                    <span className="px-2 py-0.5 rounded bg-gray-100 border text-gray-600">
+                                                        {med.daysCount} ngày
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                    {filteredActiveMeds.length > 0 && (
+                                        <tr className="bg-purple-50 font-bold text-purple-900 border-t-2 border-purple-300">
+                                            <td colSpan="3" className="p-3 text-right font-bold">
+                                                TỔNG CỘNG:
+                                            </td>
+                                            <td className="p-3 text-right text-base text-purple-800 font-bold">
+                                                {totalFilteredQty.toLocaleString()}
+                                            </td>
+                                            <td className="p-3 text-right text-base text-emerald-700 font-bold">
+                                                +{totalFilteredAmount.toLocaleString()}k
+                                            </td>
+                                            <td className="p-3 text-center text-xs text-gray-500">
+                                                {filteredActiveMeds.length} loại
                                             </td>
                                         </tr>
                                     )}

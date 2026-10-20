@@ -91,9 +91,13 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 - **Tách Tiền mặt (TM) & Chuyển khoản (CK):** Tự động phân tách doanh thu Tiền khám và số tiền Còn lại thành `💵 TM` và `💳 CK` trên cả thẻ tóm tắt (Summary Cards), bảng chi tiết theo ngày/tháng, và các cột trong file Excel xuất ra (`Khám TM`, `Khám CK`, `Còn lại TM`, `Còn lại CK`).
 - **💊 Bảng tổng hợp số lượng các loại thuốc đã bán (Ngã Bảy & Thốt Nốt):**
   - Tự động gom nhóm toàn bộ thuốc đã bán theo tên loại thuốc: tính tổng số lượng bán, đơn giá, tổng thành tiền và số ngày phát sinh bán.
+  - **🔍 Xem chi tiết ngày bán & số lượng cụ thể:**
+    - Người dùng có thể click trực tiếp vào dòng của bất kỳ loại thuốc nào (hoặc click vào nút `📅 X ngày ▼`) để mở rộng danh sách chi tiết các ngày bán.
+    - Hiển thị dạng thẻ (Cards) trực quan liệt kê từng ngày cụ thể, số lượng thuốc bán trong ngày đó, đơn giá và doanh thu tương ứng của ngày.
+    - Hỗ trợ cho cả Báo cáo tháng (`ReportView`) và Báo cáo năm (`YearlyReportView` có thanh cuộn mượt mà).
   - Phục vụ kiểm tra số lượng thuốc Thốt Nốt chuyển xuống Ngã Bảy đã bán được bao nhiêu (tab chuyển đổi giữa `📦 Thuốc bán cho Ngã Bảy` và `💊 Thuốc tại Thốt Nốt`).
   - Thanh tìm kiếm thuốc nhanh, sắp xếp theo số lượng bán nhiều nhất, kèm các thẻ thống kê tổng số loại thuốc, tổng số lượng đơn vị và tổng doanh thu thuốc.
-  - Tích hợp xuất bảng tổng hợp số lượng thuốc vào file Excel (`Tổng hợp thuốc NB`) cho cả báo cáo tháng và báo cáo năm.
+  - Tích hợp xuất bảng tổng hợp số lượng thuốc vào file Excel (`Tổng hợp thuốc NB` / `Tổng hợp thuốc`) cho cả báo cáo tháng và báo cáo năm, kèm cột `Chi tiết các ngày bán (Ngày: Số lượng)`.
 - Chức năng xuất dữ liệu ra file Excel đa sheet.
 
 ### `Điều chuyển Tiền thuốc Liên chi nhánh (Ngã Bảy -> Thốt Nốt)`

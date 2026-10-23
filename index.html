@@ -239,6 +239,92 @@
         // Default price levels
         const DEFAULT_PRICE_LEVELS = [0, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 260, 280, 300, 320];
 
+        // Helper: Chuyển đổi dữ liệu cũ (examinations & patientDetails) sang mảng danh sách toa thống nhất (prescriptions)
+        function convertOldDataToPrescriptions(examinations = {}, patientDetails = {}) {
+            const list = [];
+            const usedCounts = {};
+
+            // 1. Lấy tất cả bệnh nhân từ patientDetails
+            Object.entries(patientDetails || {}).forEach(([price, patients]) => {
+                if (Array.isArray(patients)) {
+                    patients.forEach((p, idx) => {
+                        const name = p && p.name ? String(p.name).trim() : '';
+                        const prescriptionNo = p && p.prescriptionNo ? String(p.prescriptionNo).trim() : '';
+                        const paymentMethod = p && p.paymentMethod === 'transfer' ? 'transfer' : 'cash';
+                        const priceNum = parseFloat(price) || 0;
+                        
+                        list.push({
+                            id: 'rx_' + price + '_' + idx + '_' + Math.random().toString(36).substring(2, 7),
+                            prescriptionNo,
+                            name,
+                            price: priceNum,
+                            paymentMethod
+                        });
+                        usedCounts[price] = (usedCounts[price] || 0) + 1;
+                    });
+                }
+            });
+
+            // 2. Nếu examinations có số ca chưa có trong patientDetails (do nhân viên chỉ gõ số lượng ngoài ô mức giá)
+            Object.entries(examinations || {}).forEach(([price, count]) => {
+                const c = parseInt(count || 0, 10);
+                const used = usedCounts[price] || 0;
+                const missing = c - used;
+                const priceNum = parseFloat(price) || 0;
+                for (let i = 0; i < missing; i++) {
+                    list.push({
+                        id: 'rx_gen_' + price + '_' + i + '_' + Math.random().toString(36).substring(2, 7),
+                        prescriptionNo: '',
+                        name: '',
+                        price: priceNum,
+                        paymentMethod: 'cash'
+                    });
+                }
+            });
+
+            // 3. Sắp xếp danh sách theo STT toa (số thứ tự trước, chữ sau, dòng trống cuối cùng)
+            list.sort((a, b) => {
+                const isNumA = /^\d+$/.test(a.prescriptionNo);
+                const isNumB = /^\d+$/.test(b.prescriptionNo);
+                if (isNumA && isNumB) return parseInt(a.prescriptionNo, 10) - parseInt(b.prescriptionNo, 10);
+                if (isNumA) return -1;
+                if (isNumB) return 1;
+                if (a.prescriptionNo && !b.prescriptionNo) return -1;
+                if (!a.prescriptionNo && b.prescriptionNo) return 1;
+                return (a.prescriptionNo || '').localeCompare(b.prescriptionNo || '');
+            });
+
+            return list;
+        }
+
+        // Helper: Chuyển đổi mảng toa thống nhất (prescriptions) ngược lại về định dạng examinations và patientDetails để bảo toàn 100% tương thích
+        function convertPrescriptionsToOldFormat(prescriptions = []) {
+            const examinations = {};
+            const patientDetails = {};
+
+            (prescriptions || []).forEach(p => {
+                const hasPrice = p.price !== '' && p.price !== null && p.price !== undefined && !isNaN(parseFloat(p.price));
+                const hasStt = p.prescriptionNo !== undefined && p.prescriptionNo !== null && String(p.prescriptionNo).trim() !== '';
+                const hasName = p.name !== undefined && p.name !== null && String(p.name).trim() !== '';
+
+                if (!hasPrice && !hasStt && !hasName) return; // bỏ qua các dòng trống hoàn toàn
+
+                const priceNum = hasPrice ? parseFloat(p.price) : 0;
+                const priceKey = priceNum.toString();
+
+                examinations[priceKey] = ((parseInt(examinations[priceKey], 10) || 0) + 1).toString();
+
+                if (!patientDetails[priceKey]) patientDetails[priceKey] = [];
+                patientDetails[priceKey].push({
+                    prescriptionNo: hasStt ? String(p.prescriptionNo).trim() : '',
+                    name: hasName ? String(p.name).trim() : '',
+                    paymentMethod: p.paymentMethod === 'transfer' ? 'transfer' : 'cash'
+                });
+            });
+
+            return { examinations, patientDetails };
+        }
+
         function App() {
             const [user, setUser] = useState(null);
             const [userRole, setUserRole] = useState(null); // 'admin' or 'staff'
@@ -249,6 +335,7 @@
             const [dailyData, setDailyData] = useState({
                 examinations: {},
                 patientDetails: {},
+                prescriptions: [],
                 expenses: [],
                 doctorFees: [],
                 medicines: []
@@ -514,11 +601,19 @@
                 dataRef.on('value', (snapshot) => {
                     const data = snapshot.val();
                     if (data) {
-                        setDailyData(data);
+                        let prescriptions = data.prescriptions;
+                        if (!Array.isArray(prescriptions) || prescriptions.length === 0) {
+                            prescriptions = convertOldDataToPrescriptions(data.examinations, data.patientDetails);
+                        }
+                        setDailyData({
+                            ...data,
+                            prescriptions
+                        });
                     } else {
                         setDailyData({
                             examinations: {},
                             patientDetails: {},
+                            prescriptions: [],
                             expenses: [],
                             doctorFees: [],
                             medicines: []
@@ -1008,6 +1103,15 @@
                             <ExaminationSection 
                                 examinations={dailyData.examinations || {}}
                                 patientDetails={dailyData.patientDetails || {}}
+                                prescriptions={dailyData.prescriptions || []}
+                                onUpdateExaminations={({ examinations, patientDetails, prescriptions }) => {
+                                    setDailyData(prev => ({
+                                        ...prev,
+                                        examinations,
+                                        patientDetails,
+                                        prescriptions
+                                    }));
+                                }}
                                 onChange={(exams) => setDailyData(prev => ({...prev, examinations: exams}))}
                                 onPatientDetailsChange={(details) => setDailyData(prev => ({...prev, patientDetails: details}))}
                                 readOnly={isReadOnly}
@@ -2232,7 +2336,7 @@
         }
 
         // Modal inspecting prescription sequence numbers and jumps
-        function PrescriptionSequenceModal({ patientDetails, selectedBranch, selectedDate, onClose, onOpenPriceModal, readOnly }) {
+        function PrescriptionSequenceModal({ patientDetails, selectedBranch, selectedDate, onClose, onOpenPriceModal, onAddMissingToa, onSelectPrescription, readOnly }) {
             const [checkFromOne, setCheckFromOne] = useState(true);
             const [filterType, setFilterType] = useState('all'); // 'all' | 'missing' | 'present'
             const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'transfer' | 'cash'
@@ -2533,9 +2637,23 @@
                                                                     ⚠️ BỊ NHẢY SỐ (Chưa nhập toa này)
                                                                 </span>
                                                             </div>
-                                                            <span className="text-[11px] bg-red-200 text-red-900 font-extrabold px-2 py-0.5 rounded-full">
-                                                                Thiếu
-                                                            </span>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[11px] bg-red-200 text-red-900 font-extrabold px-2 py-0.5 rounded-full">
+                                                                    Thiếu
+                                                                </span>
+                                                                {!readOnly && onAddMissingToa && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            onClose();
+                                                                            onAddMissingToa(item.num);
+                                                                        }}
+                                                                        className="text-xs bg-red-600 hover:bg-red-700 text-white font-bold px-2.5 py-1 rounded-lg transition shadow-sm flex items-center gap-1"
+                                                                        title={`Tạo nhanh toa #${item.num}`}
+                                                                    >
+                                                                        <span>➕</span> Thêm toa #{item.num}
+                                                                    </button>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     );
                                                 }
@@ -2580,16 +2698,20 @@
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        {!readOnly && onOpenPriceModal && (
+                                                        {!readOnly && (
                                                             <button
                                                                 onClick={() => {
                                                                     onClose();
-                                                                    onOpenPriceModal(item.patients[0].price);
+                                                                    if (onSelectPrescription) {
+                                                                        onSelectPrescription(item.num);
+                                                                    } else if (onOpenPriceModal && item.patients && item.patients[0]) {
+                                                                        onOpenPriceModal(item.patients[0].price);
+                                                                    }
                                                                 }}
-                                                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded hover:bg-blue-100 transition whitespace-nowrap ml-2"
-                                                                title={`Mở danh sách mức giá ${item.patients[0].price}k`}
+                                                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded hover:bg-blue-100 transition whitespace-nowrap ml-2 flex items-center gap-1"
+                                                                title={`Đến toa #${item.num}`}
                                                             >
-                                                                Sửa mức {item.patients[0].price}k &rarr;
+                                                                <span>Xem toa</span> &rarr;
                                                             </button>
                                                         )}
                                                     </div>
@@ -2615,568 +2737,746 @@
             );
         }
 
-        // Examination Section with Add Custom Price
-        function ExaminationSection({ examinations, patientDetails = {}, onChange, onPatientDetailsChange, readOnly = false, customPrices = [], saveCustomPrices, selectedBranch, selectedDate }) {
-            const [priceLevels, setPriceLevels] = useState([]);
-            const [newPrice, setNewPrice] = useState('');
-            const [activeModalPrice, setActiveModalPrice] = useState(null);
+        // Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập thẳng số tiền theo từng toa)
+        function ExaminationSection({ 
+            examinations = {}, 
+            patientDetails = {}, 
+            prescriptions: propPrescriptions = [], 
+            onUpdateExaminations, 
+            onChange, 
+            onPatientDetailsChange, 
+            readOnly = false, 
+            customPrices = [], 
+            saveCustomPrices, 
+            selectedBranch, 
+            selectedDate 
+        }) {
+            // Danh sách các toa khám đang nhập
+            const [localPrescriptions, setLocalPrescriptions] = useState([]);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'transfer' | 'cash' | 'zero'
             const [showSequenceModal, setShowSequenceModal] = useState(false);
+            const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
+            const [highlightedRowId, setHighlightedRowId] = useState(null);
+            const lastLoadedKeyRef = useRef('');
 
-            // Rebuild price levels when examinations or customPrices change
+            // Đồng bộ dữ liệu khi ngày / chi nhánh hoặc dữ liệu tải từ Firebase thay đổi
             useEffect(() => {
-                const existingPrices = Object.keys(examinations).map(p => parseFloat(p));
-                const allPrices = [...new Set([...DEFAULT_PRICE_LEVELS, ...customPrices, ...existingPrices])];
-                setPriceLevels(allPrices.sort((a, b) => a - b));
-            }, [examinations, customPrices]);
+                const currentKey = `${selectedBranch}_${selectedDate}`;
+                const hasPropList = Array.isArray(propPrescriptions) && propPrescriptions.length > 0;
 
-            // Real-time analysis of prescription sequence across all price levels
+                if (currentKey !== lastLoadedKeyRef.current) {
+                    lastLoadedKeyRef.current = currentKey;
+                    if (hasPropList) {
+                        setLocalPrescriptions(propPrescriptions);
+                    } else {
+                        setLocalPrescriptions(convertOldDataToPrescriptions(examinations, patientDetails));
+                    }
+                } else if (hasPropList && localPrescriptions.length === 0) {
+                    setLocalPrescriptions(propPrescriptions);
+                }
+            }, [selectedBranch, selectedDate, propPrescriptions, examinations, patientDetails]);
+
+            // Cập nhật lên component cha (lưu đồng thời cả định dạng mới và cũ để bảo toàn tương thích 100%)
+            const commitPrescriptions = (updatedList) => {
+                setLocalPrescriptions(updatedList);
+                const { examinations: newExams, patientDetails: newDetails } = convertPrescriptionsToOldFormat(updatedList);
+                if (onUpdateExaminations) {
+                    onUpdateExaminations({
+                        examinations: newExams,
+                        patientDetails: newDetails,
+                        prescriptions: updatedList
+                    });
+                }
+                if (onChange) onChange(newExams);
+                if (onPatientDetailsChange) onPatientDetailsChange(newDetails);
+            };
+
+            // Tính số thứ tự tiếp theo tự động
+            const getNextStt = (list) => {
+                let maxNum = 0;
+                (list || []).forEach(p => {
+                    const raw = p && p.prescriptionNo ? String(p.prescriptionNo).trim() : '';
+                    if (/^\d+$/.test(raw)) {
+                        const n = parseInt(raw, 10);
+                        if (n > maxNum) maxNum = n;
+                    }
+                });
+                return maxNum > 0 ? (maxNum + 1).toString() : '1';
+            };
+
+            // Thêm 1 toa mới
+            const handleAddRow = (customStt = null) => {
+                const nextStt = customStt !== null ? customStt.toString() : getNextStt(localPrescriptions);
+                const newRow = {
+                    id: 'rx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                    prescriptionNo: nextStt,
+                    name: '',
+                    price: '',
+                    paymentMethod: 'cash'
+                };
+                const updated = [...localPrescriptions, newRow];
+                commitPrescriptions(updated);
+
+                setHighlightedRowId(newRow.id);
+                setTimeout(() => {
+                    const el = document.getElementById(`price-input-${newRow.id}`);
+                    if (el) el.focus();
+                }, 100);
+                setTimeout(() => setHighlightedRowId(null), 2500);
+            };
+
+            // Thêm nhanh 5 toa
+            const handleAddMultiple = (count = 5) => {
+                let currentMax = 0;
+                (localPrescriptions || []).forEach(p => {
+                    const raw = p && p.prescriptionNo ? String(p.prescriptionNo).trim() : '';
+                    if (/^\d+$/.test(raw)) {
+                        const n = parseInt(raw, 10);
+                        if (n > currentMax) currentMax = n;
+                    }
+                });
+                const newRows = [];
+                for (let i = 1; i <= count; i++) {
+                    newRows.push({
+                        id: 'rx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7) + '_' + i,
+                        prescriptionNo: (currentMax + i).toString(),
+                        name: '',
+                        price: '',
+                        paymentMethod: 'cash'
+                    });
+                }
+                const updated = [...localPrescriptions, ...newRows];
+                commitPrescriptions(updated);
+            };
+
+            // Chỉnh sửa từng trường của toa
+            const handleRowChange = (id, field, value) => {
+                const updated = localPrescriptions.map(row => {
+                    if (row.id === id) {
+                        return { ...row, [field]: value };
+                    }
+                    return row;
+                });
+                commitPrescriptions(updated);
+            };
+
+            // Đổi hình thức thanh toán (Tiền mặt <-> Chuyển khoản)
+            const handleTogglePayment = (id) => {
+                const updated = localPrescriptions.map(row => {
+                    if (row.id === id) {
+                        const next = row.paymentMethod === 'transfer' ? 'cash' : 'transfer';
+                        return { ...row, paymentMethod: next };
+                    }
+                    return row;
+                });
+                commitPrescriptions(updated);
+            };
+
+            // Xóa 1 toa
+            const handleRemoveRow = (id) => {
+                const row = localPrescriptions.find(r => r.id === id);
+                const sttText = row && row.prescriptionNo ? `toa #${row.prescriptionNo}` : 'dòng này';
+                if (confirm(`Bạn có chắc muốn xóa ${sttText}?`)) {
+                    const updated = localPrescriptions.filter(r => r.id !== id);
+                    commitPrescriptions(updated);
+                }
+            };
+
+            // Xóa tất cả các toa của ngày
+            const handleClearAll = () => {
+                if (localPrescriptions.length === 0) return;
+                if (confirm(`⚠️ Bạn có chắc muốn xóa toàn bộ ${localPrescriptions.length} toa khám của ngày ${selectedDate}?`)) {
+                    commitPrescriptions([]);
+                }
+            };
+
+            // Chuyển nhanh đến toa từ modal kiểm tra STT
+            const handleJumpToPrescription = (stt) => {
+                const target = localPrescriptions.find(r => String(r.prescriptionNo).trim() === String(stt).trim());
+                if (target) {
+                    setHighlightedRowId(target.id);
+                    setTimeout(() => {
+                        const el = document.getElementById(`row-${target.id}`);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                    setTimeout(() => setHighlightedRowId(null), 3000);
+                }
+            };
+
+            // Nhấn Enter ở ô giá hoặc tên để tự động thêm toa tiếp theo
+            const handleKeyDown = (e, index) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (index === localPrescriptions.length - 1) {
+                        handleAddRow();
+                    } else {
+                        const nextRow = localPrescriptions[index + 1];
+                        if (nextRow) {
+                            const nextInput = document.getElementById(`price-input-${nextRow.id}`);
+                            if (nextInput) nextInput.focus();
+                        }
+                    }
+                }
+            };
+
+            // Thống kê tổng hợp thời gian thực
+            const stats = useMemo(() => {
+                let totalExam = 0;
+                let totalCash = 0;
+                let totalTransfer = 0;
+                let casesCount = 0;
+                let zeroCasesCount = 0;
+                let transferCases = 0;
+                let cashCases = 0;
+                let maxStt = 0;
+                const priceGroups = {};
+
+                localPrescriptions.forEach(p => {
+                    const hasPrice = p.price !== '' && p.price !== null && !isNaN(parseFloat(p.price));
+                    const hasStt = p.prescriptionNo && String(p.prescriptionNo).trim() !== '';
+                    const hasName = p.name && String(p.name).trim() !== '';
+
+                    if (!hasPrice && !hasStt && !hasName) return;
+
+                    casesCount++;
+                    const priceNum = hasPrice ? parseFloat(p.price) : 0;
+                    const isTransfer = p.paymentMethod === 'transfer';
+
+                    if (isTransfer) transferCases++;
+                    else cashCases++;
+
+                    if (priceNum === 0) {
+                        zeroCasesCount++;
+                    } else {
+                        totalExam += priceNum;
+                        if (isTransfer) totalTransfer += priceNum;
+                        else totalCash += priceNum;
+                    }
+
+                    if (/^\d+$/.test(String(p.prescriptionNo).trim())) {
+                        const n = parseInt(p.prescriptionNo, 10);
+                        if (n > maxStt) maxStt = n;
+                    }
+
+                    const pKey = priceNum.toString();
+                    if (!priceGroups[pKey]) {
+                        priceGroups[pKey] = { count: 0, cash: 0, transfer: 0, total: 0 };
+                    }
+                    priceGroups[pKey].count++;
+                    priceGroups[pKey].total += priceNum;
+                    if (isTransfer) priceGroups[pKey].transfer++;
+                    else priceGroups[pKey].cash++;
+                });
+
+                const sortedGroups = Object.entries(priceGroups).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
+
+                return {
+                    totalExam,
+                    totalCash,
+                    totalTransfer,
+                    casesCount,
+                    zeroCasesCount,
+                    transferCases,
+                    cashCases,
+                    maxStt,
+                    sortedGroups
+                };
+            }, [localPrescriptions]);
+
+            // Phân tích dãy STT toa thuốc
+            const currentPatientDetails = useMemo(() => {
+                const { patientDetails: pd } = convertPrescriptionsToOldFormat(localPrescriptions);
+                return pd;
+            }, [localPrescriptions]);
+
             const sequenceInfo = useMemo(() => {
-                return getSequenceAnalysis(patientDetails, true);
-            }, [patientDetails]);
+                return getSequenceAnalysis(currentPatientDetails, true);
+            }, [currentPatientDetails]);
 
-            const addCustomPrice = () => {
-                const price = parseFloat(newPrice);
-                if (price && price > 0 && !customPrices.includes(price) && !DEFAULT_PRICE_LEVELS.includes(price)) {
-                    const updated = [...customPrices, price].sort((a, b) => a - b);
-                    saveCustomPrices(updated);
-                    setNewPrice('');
-                }
-            };
+            // Phát hiện trùng STT toa
+            const duplicateSttSet = useMemo(() => {
+                const counts = {};
+                localPrescriptions.forEach(p => {
+                    const raw = p.prescriptionNo ? String(p.prescriptionNo).trim() : '';
+                    if (raw) counts[raw] = (counts[raw] || 0) + 1;
+                });
+                const dups = new Set();
+                Object.entries(counts).forEach(([stt, cnt]) => {
+                    if (cnt > 1) dups.add(stt);
+                });
+                return dups;
+            }, [localPrescriptions]);
 
-            const removePrice = (price) => {
-                if (confirm(`Xóa mức giá ${price}k?`)) {
-                    // Remove from custom prices
-                    const updatedCustom = customPrices.filter(p => p !== price);
-                    saveCustomPrices(updatedCustom);
-                    
-                    // Remove from examinations
-                    const updated = {...examinations};
-                    delete updated[price];
-                    onChange(updated);
-                }
-            };
+            // Danh sách sau khi lọc và tìm kiếm
+            const filteredPrescriptions = useMemo(() => {
+                return localPrescriptions.filter(p => {
+                    if (paymentFilter === 'transfer' && p.paymentMethod !== 'transfer') return false;
+                    if (paymentFilter === 'cash' && p.paymentMethod === 'transfer') return false;
+                    if (paymentFilter === 'zero') {
+                        const pr = parseFloat(p.price);
+                        if (pr !== 0 && p.price !== '0') return false;
+                    }
+
+                    if (searchTerm.trim()) {
+                        const term = searchTerm.trim().toLowerCase();
+                        const sttMatch = p.prescriptionNo && String(p.prescriptionNo).toLowerCase().includes(term);
+                        const nameMatch = p.name && String(p.name).toLowerCase().includes(term);
+                        const priceMatch = p.price !== '' && String(p.price).includes(term);
+                        if (!sttMatch && !nameMatch && !priceMatch) return false;
+                    }
+
+                    return true;
+                });
+            }, [localPrescriptions, paymentFilter, searchTerm]);
+
+            // Các mức giá gợi ý bấm chọn nhanh
+            const quickPriceChips = [0, 50, 70, 80, 90, 100, 110, 120, 150];
 
             return (
-                <div className="bg-white rounded-lg shadow-md p-6">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="text-xl font-bold text-gray-800">💰 Tiền khám bệnh</h2>
+                <div className="bg-white rounded-2xl shadow-md p-4 sm:p-6 border border-gray-100">
+                    {/* Header Toolbar */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-gray-200">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <h2 className="text-xl sm:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-2">
+                                <span>💰</span> Tiền khám bệnh
+                            </h2>
                             <button
+                                type="button"
                                 onClick={() => setShowSequenceModal(true)}
-                                className={`text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shadow-sm ${
+                                className={`text-xs px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition shadow-sm ${
                                     sequenceInfo.hasJumps 
                                         ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 animate-pulse' 
                                         : sequenceInfo.numericCount > 0 
                                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200' 
                                             : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
                                 }`}
-                                title="Kiểm tra xem số thứ tự toa thuốc có bị nhảy không"
+                                title="Kiểm tra xem số thứ tự toa thuốc có bị nhảy hay trùng không"
                             >
                                 <span>{sequenceInfo.hasJumps ? '⚠️' : sequenceInfo.numericCount > 0 ? '✅' : '🔍'}</span>
                                 <span>
                                     {sequenceInfo.hasJumps 
-                                        ? `Nhảy ${sequenceInfo.missingNumbers.length} số toa` 
+                                        ? `Nhảy ${sequenceInfo.missingNumbers.length} số toa!` 
                                         : sequenceInfo.numericCount > 0 
                                             ? `STT liên tục (${sequenceInfo.numericCount} toa)` 
                                             : 'Kiểm tra STT toa'}
                                 </span>
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowPriceBreakdown(prev => !prev)}
+                                className={`text-xs px-2.5 py-1.5 rounded-xl font-semibold border transition ${
+                                    showPriceBreakdown ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                                title="Xem phân bổ số ca theo từng mức giá"
+                            >
+                                📊 {showPriceBreakdown ? 'Ẩn mức giá' : 'Xem mức giá'}
+                            </button>
                         </div>
+
                         {!readOnly && (
-                            <div className="flex gap-2 w-full sm:w-auto">
-                                <input
-                                    type="number"
-                                    value={newPrice}
-                                    onChange={(e) => setNewPrice(e.target.value)}
-                                    placeholder="Giá mới (k)"
-                                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                    onKeyPress={(e) => e.key === 'Enter' && addCustomPrice()}
-                                />
+                            <div className="flex items-center gap-2 flex-wrap self-end md:self-auto">
+                                {localPrescriptions.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={handleClearAll}
+                                        className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-2 rounded-xl transition font-semibold"
+                                        title="Xóa tất cả các toa của ngày này"
+                                    >
+                                        🗑️ Xóa hết
+                                    </button>
+                                )}
                                 <button
-                                    onClick={addCustomPrice}
-                                    className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition font-semibold"
+                                    type="button"
+                                    onClick={() => handleAddMultiple(5)}
+                                    className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm"
+                                    title="Thêm nhanh 5 toa với số thứ tự liên tiếp"
                                 >
-                                    ➕ Thêm giá
+                                    <span>⚡</span> +5 toa
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddRow()}
+                                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-md hover:shadow-lg transform active:scale-95"
+                                    title="Thêm một toa khám mới (Enter)"
+                                >
+                                    <span>➕</span> Thêm toa khám
                                 </button>
                             </div>
                         )}
                     </div>
-                    
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                        {priceLevels.map(price => {
-                            const validPatientsCount = (patientDetails[price] || []).filter(p => (p.name && p.name.trim()) || (p.prescriptionNo && p.prescriptionNo.trim())).length;
-                            const inputCount = parseInt(examinations?.[price] || 0);
-                            const isMismatch = validPatientsCount !== inputCount;
 
-                            return (
-                                <div key={price} className="relative">
-                                    <div className="flex flex-col gap-1">
-                                        <div className="flex justify-between items-center">
-                                            <label className="text-xs font-semibold text-gray-600">
-                                                {price}k
-                                            </label>
-                                            <div className="flex gap-1">
-                                                <button 
-                                                    onClick={() => setActiveModalPrice(price)}
-                                                    className="text-blue-500 hover:text-blue-700 text-xs px-1"
-                                                    title="Nhập thông tin toa"
-                                                >
-                                                    📝
-                                                </button>
-                                                {!DEFAULT_PRICE_LEVELS.includes(price) && customPrices.includes(price) && !readOnly && (
-                                                    <button
-                                                        onClick={() => removePrice(price)}
-                                                        className="text-red-500 hover:text-red-700 text-xs px-1"
-                                                        title="Xóa mức giá này"
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                )}
+                    {/* Stats Overview Banner */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 my-4">
+                        {/* Total Exam */}
+                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50/70 border border-blue-200/80 rounded-2xl p-3.5 shadow-sm">
+                            <span className="text-[11px] font-semibold text-blue-700 uppercase tracking-wider block">Tổng tiền khám</span>
+                            <div className="text-xl sm:text-2xl font-black text-blue-900 mt-0.5">
+                                +{stats.totalExam.toLocaleString()}k
+                            </div>
+                            <span className="text-xs text-blue-600 font-semibold mt-1 block">
+                                {stats.casesCount} ca khám {stats.zeroCasesCount > 0 ? `(${stats.zeroCasesCount} ca 0đ)` : ''}
+                            </span>
+                        </div>
+
+                        {/* Cash */}
+                        <div className="bg-gradient-to-br from-emerald-50 to-green-50/70 border border-emerald-200/80 rounded-2xl p-3.5 shadow-sm">
+                            <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider block">Tiền mặt (TM)</span>
+                            <div className="text-xl sm:text-2xl font-black text-emerald-900 mt-0.5">
+                                +{stats.totalCash.toLocaleString()}k
+                            </div>
+                            <span className="text-xs text-emerald-600 font-semibold mt-1 block">
+                                💵 {stats.cashCases} toa thu tiền mặt
+                            </span>
+                        </div>
+
+                        {/* Transfer */}
+                        <div className="bg-gradient-to-br from-purple-50 to-fuchsia-50/70 border border-purple-200/80 rounded-2xl p-3.5 shadow-sm">
+                            <span className="text-[11px] font-semibold text-purple-700 uppercase tracking-wider block">Chuyển khoản (CK)</span>
+                            <div className="text-xl sm:text-2xl font-black text-purple-900 mt-0.5">
+                                +{stats.totalTransfer.toLocaleString()}k
+                            </div>
+                            <span className="text-xs text-purple-600 font-semibold mt-1 block">
+                                💳 {stats.transferCases} toa chuyển khoản
+                            </span>
+                        </div>
+
+                        {/* Highest STT */}
+                        <div className="bg-gradient-to-br from-gray-50 to-slate-50 border border-gray-200 rounded-2xl p-3.5 shadow-sm">
+                            <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider block">Toa cao nhất</span>
+                            <div className="text-xl sm:text-2xl font-black text-gray-800 mt-0.5">
+                                {stats.maxStt > 0 ? `#${stats.maxStt}` : '-'}
+                            </div>
+                            <span className="text-xs text-gray-500 font-semibold mt-1 block">
+                                {sequenceInfo.hasJumps ? `⚠️ Thiếu ${sequenceInfo.missingNumbers.length} số` : 'Dãy số hoàn chỉnh'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Collapsible Price Breakdown */}
+                    {showPriceBreakdown && (
+                        <div className="mb-4 bg-gray-50/80 border border-gray-200 rounded-2xl p-4 transition">
+                            <div className="flex justify-between items-center mb-2.5">
+                                <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                    <span>📊</span> Phân bổ số ca theo từng mức giá khám
+                                </h4>
+                                <span className="text-xs text-gray-500">
+                                    {stats.sortedGroups.length} mức giá phát sinh
+                                </span>
+                            </div>
+                            {stats.sortedGroups.length === 0 ? (
+                                <p className="text-xs text-gray-400 italic">Chưa có mức giá nào được nhập.</p>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                                    {stats.sortedGroups.map(([price, g]) => (
+                                        <div key={price} className="bg-white p-2.5 rounded-xl border border-gray-200 shadow-xs text-center">
+                                            <div className="text-xs font-bold text-gray-700">{price}k</div>
+                                            <div className="text-base font-extrabold text-blue-700 my-0.5">{g.count} ca</div>
+                                            <div className="text-[11px] font-semibold text-green-600">={g.total.toLocaleString()}k</div>
+                                            <div className="text-[10px] text-gray-400 mt-1 flex justify-center gap-1.5">
+                                                <span className="text-emerald-700">TM: {g.cash}</span>
+                                                <span className="text-purple-700">CK: {g.transfer}</span>
                                             </div>
                                         </div>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={examinations?.[price] || ''}
-                                            onChange={(e) => {
-                                                onChange({
-                                                    ...examinations,
-                                                    [price]: e.target.value
-                                                });
-                                            }}
-                                            disabled={readOnly}
-                                            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-center text-lg font-semibold ${
-                                                isMismatch 
-                                                    ? 'border-red-500 bg-red-50 text-red-600 focus:ring-red-500' 
-                                                    : 'border-gray-300 focus:ring-blue-500'
-                                            } ${readOnly ? 'bg-gray-100 cursor-not-allowed border-gray-300' : ''}`}
-                                            placeholder="0"
-                                        />
-                                    </div>
+                                    ))}
                                 </div>
-                            );
-                        })}
-                    </div>
-                    
-                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                        <div className="flex justify-between items-center mb-2">
-                            <p className="text-lg font-bold text-blue-800">
-                                Tổng tiền khám: {Object.entries(examinations || {})
-                                    .filter(([price, count]) => count && parseFloat(count) > 0)
-                                    .reduce((sum, [price, count]) => {
-                                        return sum + (parseFloat(price) * parseFloat(count));
-                                    }, 0).toLocaleString()}k
-                            </p>
+                            )}
                         </div>
-                        {(() => {
-                            let transferCount = 0;
-                            let transferAmount = 0;
-                            Object.entries(patientDetails || {}).forEach(([p, patients]) => {
-                                if (Array.isArray(patients)) {
-                                    patients.forEach(pt => {
-                                        if (pt && pt.paymentMethod === 'transfer') {
-                                            transferCount += 1;
-                                            transferAmount += parseFloat(p || 0);
-                                        }
-                                    });
-                                }
-                            });
-                            if (transferCount > 0) {
-                                return (
-                                    <div className="flex justify-between items-center text-xs font-semibold text-purple-700 bg-purple-50 px-2.5 py-1.5 rounded-md mb-2 border border-purple-200">
-                                        <span>💳 Trong đó Chuyển khoản ({transferCount} toa):</span>
-                                        <span className="font-bold text-sm">+{transferAmount.toLocaleString()}k</span>
-                                    </div>
-                                );
-                            }
-                            return null;
-                        })()}
-                        <div className="flex justify-between items-center">
-                            <p className="text-sm font-semibold text-blue-700">
-                                Tổng số ca:
-                            </p>
-                            <p className="text-lg font-bold text-blue-600">
-                                {Object.entries(examinations || {})
-                                    .filter(([price, count]) => count && parseFloat(count) > 0)
-                                    .reduce((sum, [price, count]) => {
-                                        return sum + parseInt(count);
-                                    }, 0)} ca
-                            </p>
-                        </div>
-                        {/* Debug: Chi tiết tính toán */}
-                        <details className="mt-3">
-                            <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
-                                🔍 Xem chi tiết tính toán
-                            </summary>
-                            <div className="mt-2 text-xs bg-white p-2 rounded border border-blue-200 max-h-40 overflow-y-auto">
-                                {Object.entries(examinations || {})
-                                    .filter(([price, count]) => count && parseFloat(count) > 0)
-                                    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
-                                    .map(([price, count]) => (
-                                        <div key={price} className="flex justify-between py-1 border-b border-gray-100">
-                                            <span>{price}k × {count} ca</span>
-                                            <span className="font-semibold text-green-600">
-                                                = {(parseFloat(price) * parseFloat(count)).toLocaleString()}k
-                                            </span>
-                                        </div>
-                                    ))
-                                }
-                                <div className="flex justify-between py-2 mt-2 border-t-2 border-blue-300 font-bold">
-                                    <span>TỔNG</span>
-                                    <span className="text-blue-700">
-                                        = {Object.entries(examinations || {})
-                                            .filter(([price, count]) => count && parseFloat(count) > 0)
-                                            .reduce((sum, [price, count]) => {
-                                                return sum + (parseFloat(price) * parseFloat(count));
-                                            }, 0).toLocaleString()}k
-                                    </span>
-                                </div>
-                            </div>
-                        </details>
-                    </div>
+                    )}
 
-                    {/* Prescription Sequence Check Banner */}
-                    <div className={`mt-3 p-4 rounded-xl border transition shadow-sm ${
-                        sequenceInfo.hasJumps 
-                            ? 'bg-amber-50/90 border-amber-300' 
-                            : sequenceInfo.numericCount > 0 
-                                ? 'bg-emerald-50/90 border-emerald-300' 
-                                : 'bg-gray-50 border-gray-200'
-                    }`}>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                                <span className="text-2xl mt-0.5">
-                                    {sequenceInfo.hasJumps ? '⚠️' : sequenceInfo.numericCount > 0 ? '✅' : '📋'}
-                                </span>
-                                <div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <h3 className={`font-bold text-sm sm:text-base ${
-                                            sequenceInfo.hasJumps ? 'text-amber-900' : sequenceInfo.numericCount > 0 ? 'text-emerald-900' : 'text-gray-700'
-                                        }`}>
-                                            {sequenceInfo.numericCount === 0 
-                                                ? 'Kiểm tra Số Thứ Tự (STT) Toa Thuốc' 
-                                                : sequenceInfo.hasJumps 
-                                                    ? `Phát hiện nhảy STT: thiếu ${sequenceInfo.missingNumbers.length} số toa!` 
-                                                    : 'Số thứ tự toa thuốc hoàn toàn liên tục!'}
-                                        </h3>
-                                        {sequenceInfo.numericCount > 0 && (
-                                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                                                sequenceInfo.hasJumps 
-                                                    ? 'bg-amber-200 text-amber-900' 
-                                                    : 'bg-emerald-200 text-emerald-900'
-                                            }`}>
-                                                Đã nhập {sequenceInfo.numericCount} toa (từ #{sequenceInfo.min} đến #{sequenceInfo.max})
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className={`text-xs mt-1 ${
-                                        sequenceInfo.hasJumps ? 'text-amber-800' : sequenceInfo.numericCount > 0 ? 'text-emerald-800' : 'text-gray-500'
-                                    }`}>
-                                        {sequenceInfo.numericCount === 0 
-                                            ? 'Chưa có số thứ tự toa nào được nhập trong các mức giá khám.' 
-                                            : sequenceInfo.hasJumps 
-                                                ? `Các số toa bị thiếu: ${sequenceInfo.missingNumbers.slice(0, 10).map(n => `#${n}`).join(', ')}${sequenceInfo.missingNumbers.length > 10 ? ` và ${sequenceInfo.missingNumbers.length - 10} số khác...` : ''}` 
-                                                : `Dãy số từ toa #${sequenceInfo.min} đến toa #${sequenceInfo.max} đầy đủ, không bị khuyết số nào.`}
-                                    </p>
-                                </div>
-                            </div>
+                    {/* Filter and Search Bar */}
+                    <div className="flex flex-col sm:flex-row gap-2.5 justify-between items-stretch sm:items-center py-2.5">
+                        {/* Filter Tabs */}
+                        <div className="flex bg-gray-100 p-1 rounded-xl text-xs font-semibold overflow-x-auto">
                             <button
-                                onClick={() => setShowSequenceModal(true)}
-                                className={`whitespace-nowrap px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition shadow flex items-center justify-center gap-1.5 ${
-                                    sequenceInfo.hasJumps 
-                                        ? 'bg-amber-600 hover:bg-amber-700 text-white animate-pulse' 
-                                        : sequenceInfo.numericCount > 0 
-                                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
-                                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                type="button"
+                                onClick={() => setPaymentFilter('all')}
+                                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                    paymentFilter === 'all' ? 'bg-white text-blue-700 shadow-sm font-bold' : 'text-gray-600 hover:text-gray-900'
                                 }`}
                             >
-                                <span>🔍</span>
-                                <span>{sequenceInfo.hasJumps ? 'Kiểm tra toa bị nhảy' : 'Kiểm tra STT toa'}</span>
+                                Tất cả ({localPrescriptions.length})
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => setPaymentFilter('cash')}
+                                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                    paymentFilter === 'cash' ? 'bg-emerald-600 text-white shadow-sm font-bold' : 'text-emerald-700 hover:text-emerald-900'
+                                }`}
+                            >
+                                💵 Tiền mặt ({stats.cashCases})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPaymentFilter('transfer')}
+                                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                    paymentFilter === 'transfer' ? 'bg-purple-600 text-white shadow-sm font-bold' : 'text-purple-700 hover:text-purple-900'
+                                }`}
+                            >
+                                💳 Chuyển khoản ({stats.transferCases})
+                            </button>
+                            {stats.zeroCasesCount > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentFilter('zero')}
+                                    className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                        paymentFilter === 'zero' ? 'bg-gray-700 text-white shadow-sm font-bold' : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                >
+                                    0đ ({stats.zeroCasesCount})
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Search Input */}
+                        <div className="relative w-full sm:w-64">
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="🔍 Tìm theo số toa, tên bé, số tiền..."
+                                className="w-full text-xs sm:text-sm px-3 py-2 pl-8 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                            />
+                            <span className="absolute left-2.5 top-2.5 text-gray-400 text-xs">🔍</span>
+                            {searchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 text-xs w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-200"
+                                >
+                                    ✕
+                                </button>
+                            )}
                         </div>
                     </div>
 
+                    {/* Prescriptions Table / List */}
+                    {localPrescriptions.length === 0 ? (
+                        <div className="text-center py-12 px-4 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50 my-2">
+                            <div className="text-4xl mb-3">📋</div>
+                            <h3 className="font-extrabold text-gray-700 text-base sm:text-lg">
+                                Chưa có toa khám nào trong ngày {selectedDate}
+                            </h3>
+                            <p className="text-xs sm:text-sm text-gray-500 mt-1 max-w-md mx-auto">
+                                Nhân viên không cần chia theo mức giá nữa, chỉ cần nhấn nút bên dưới để gõ thẳng số tiền từng toa.
+                            </p>
+                            {!readOnly && (
+                                <div className="mt-5 flex justify-center gap-3 flex-wrap">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddRow(1)}
+                                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition shadow-md flex items-center gap-2"
+                                    >
+                                        <span>➕</span> Thêm toa đầu tiên (Toa #1)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddMultiple(5)}
+                                        className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-sm transition flex items-center gap-2"
+                                    >
+                                        <span>⚡</span> Tạo nhanh 5 toa
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    ) : filteredPrescriptions.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-gray-400 italic">
+                            Không tìm thấy toa thuốc nào phù hợp với từ khóa hoặc bộ lọc đang chọn.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-xs mt-2">
+                            <table className="w-full text-left text-sm border-collapse min-w-[620px]">
+                                <thead>
+                                    <tr className="bg-gray-100 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
+                                        <th className="py-3 px-3 w-24 text-center">STT Toa</th>
+                                        <th className="py-3 px-3">Tên bé / Bệnh nhân</th>
+                                        <th className="py-3 px-3 w-64">Số tiền khám (k)</th>
+                                        <th className="py-3 px-3 w-40 text-center">Hình thức</th>
+                                        {!readOnly && <th className="py-3 px-2 w-12 text-center">Xóa</th>}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 bg-white">
+                                    {filteredPrescriptions.map((row, index) => {
+                                        const isDup = duplicateSttSet.has(String(row.prescriptionNo).trim());
+                                        const isHighlighted = highlightedRowId === row.id;
+
+                                        return (
+                                            <tr 
+                                                key={row.id} 
+                                                id={`row-${row.id}`}
+                                                className={`transition-colors duration-150 ${
+                                                    isHighlighted 
+                                                        ? 'bg-amber-100/80 ring-2 ring-amber-400' 
+                                                        : row.paymentMethod === 'transfer' 
+                                                            ? 'hover:bg-purple-50/40' 
+                                                            : 'hover:bg-blue-50/40'
+                                                }`}
+                                            >
+                                                {/* STT Toa */}
+                                                <td className="py-2.5 px-3 text-center align-top">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="relative">
+                                                            <input
+                                                                type="text"
+                                                                value={row.prescriptionNo}
+                                                                onChange={(e) => handleRowChange(row.id, 'prescriptionNo', e.target.value)}
+                                                                onKeyDown={(e) => handleKeyDown(e, index)}
+                                                                disabled={readOnly}
+                                                                placeholder="#"
+                                                                className={`w-16 sm:w-20 text-center font-black text-sm px-2 py-1.5 rounded-lg border focus:outline-none focus:ring-2 transition shadow-xs ${
+                                                                    isDup 
+                                                                        ? 'border-red-500 bg-red-50 text-red-700 focus:ring-red-500 animate-pulse' 
+                                                                        : 'border-gray-300 focus:ring-blue-500 text-gray-800 bg-gray-50/60 focus:bg-white'
+                                                                } ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                                title={isDup ? 'Cảnh báo: Trùng số thứ tự toa!' : 'Số thứ tự toa'}
+                                                            />
+                                                        </div>
+                                                        {isDup && (
+                                                            <span className="text-[10px] text-red-600 font-extrabold mt-0.5">
+                                                                ⚠️ Trùng
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+
+                                                {/* Tên bé / Bệnh nhân */}
+                                                <td className="py-2.5 px-3 align-top">
+                                                    <input
+                                                        type="text"
+                                                        value={row.name}
+                                                        onChange={(e) => handleRowChange(row.id, 'name', e.target.value)}
+                                                        onKeyDown={(e) => handleKeyDown(e, index)}
+                                                        disabled={readOnly}
+                                                        placeholder="Tên bé (VD: Bé An, Bé Bo...)"
+                                                        className={`w-full text-xs sm:text-sm px-3 py-1.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition shadow-xs ${
+                                                            readOnly ? 'bg-gray-100 cursor-not-allowed text-gray-700' : 'bg-white'
+                                                        }`}
+                                                    />
+                                                </td>
+
+                                                {/* Số tiền khám (k) + Phím chọn nhanh */}
+                                                <td className="py-2.5 px-3 align-top">
+                                                    <div className="flex flex-col gap-1.5">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <input
+                                                                id={`price-input-${row.id}`}
+                                                                type="number"
+                                                                step="any"
+                                                                value={row.price}
+                                                                onChange={(e) => handleRowChange(row.id, 'price', e.target.value)}
+                                                                onKeyDown={(e) => handleKeyDown(e, index)}
+                                                                disabled={readOnly}
+                                                                placeholder="0"
+                                                                className={`w-28 text-right font-black text-sm sm:text-base px-2.5 py-1.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-blue-700 shadow-xs ${
+                                                                    readOnly ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                                                                }`}
+                                                            />
+                                                            <span className="text-xs font-bold text-gray-500">k</span>
+                                                        </div>
+
+                                                        {/* Quick price chips */}
+                                                        {!readOnly && (
+                                                            <div className="flex items-center gap-1 flex-wrap">
+                                                                {quickPriceChips.map(p => (
+                                                                    <button
+                                                                        key={p}
+                                                                        type="button"
+                                                                        onClick={() => handleRowChange(row.id, 'price', p)}
+                                                                        className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold transition border ${
+                                                                            parseFloat(row.price) === p 
+                                                                                ? 'bg-blue-600 text-white border-blue-600' 
+                                                                                : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
+                                                                        }`}
+                                                                        title={`Đặt nhanh mức ${p}k`}
+                                                                    >
+                                                                        {p}k
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+
+                                                {/* Hình thức thanh toán (TM / CK) */}
+                                                <td className="py-2.5 px-3 text-center align-top">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => !readOnly && handleTogglePayment(row.id)}
+                                                        disabled={readOnly}
+                                                        className={`w-full max-w-[130px] mx-auto px-3 py-1.5 rounded-xl font-bold text-xs transition shadow-xs flex items-center justify-center gap-1.5 ${
+                                                            row.paymentMethod === 'transfer'
+                                                                ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm ring-1 ring-purple-400'
+                                                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                                        } ${readOnly ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                                        title="Click để đổi giữa Tiền mặt và Chuyển khoản"
+                                                    >
+                                                        <span>{row.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}</span>
+                                                        <span className="hidden sm:inline">
+                                                            {row.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt'}
+                                                        </span>
+                                                    </button>
+                                                </td>
+
+                                                {/* Thao tác xóa */}
+                                                {!readOnly && (
+                                                    <td className="py-2.5 px-2 text-center align-top">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveRow(row.id)}
+                                                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 w-8 h-8 rounded-lg flex items-center justify-center transition text-sm mx-auto"
+                                                            title="Xóa toa này"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {/* Bottom Action Footer */}
+                    {!readOnly && localPrescriptions.length > 0 && (
+                        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 mt-2 border-t border-gray-100">
+                            <span className="text-xs text-gray-500">
+                                💡 Nhấn <kbd className="px-1.5 py-0.5 bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold">Enter</kbd> ở ô giá để tự động thêm toa tiếp theo.
+                            </span>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddMultiple(5)}
+                                    className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs sm:text-sm transition flex items-center gap-1.5"
+                                >
+                                    <span>⚡</span> +5 toa
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddRow()}
+                                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-md"
+                                >
+                                    <span>➕</span> Thêm toa khám
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Sequence Checker Modal */}
                     {showSequenceModal && (
                         <PrescriptionSequenceModal 
-                            patientDetails={patientDetails}
+                            patientDetails={currentPatientDetails}
                             selectedBranch={selectedBranch}
                             selectedDate={selectedDate}
                             onClose={() => setShowSequenceModal(false)}
-                            onOpenPriceModal={(price) => {
+                            onAddMissingToa={(missingNo) => {
                                 setShowSequenceModal(false);
-                                setActiveModalPrice(price);
+                                handleAddRow(missingNo);
                             }}
-                            readOnly={readOnly}
-                        />
-                    )}
-
-                    {activeModalPrice !== null && (
-                        <PatientDetailsModal 
-                            price={activeModalPrice}
-                            patients={patientDetails[activeModalPrice] || []}
-                            fullPatientDetails={patientDetails}
-                            selectedBranch={selectedBranch}
-                            selectedDate={selectedDate}
-                            onOpenPriceModal={(price) => setActiveModalPrice(price)}
-                            onSave={(patients) => {
-                                // Filter out completely empty rows
-                                const validPatients = patients.filter(p => (p.name && p.name.trim()) || (p.prescriptionNo && p.prescriptionNo.trim()));
-                                const newDetails = { ...patientDetails, [activeModalPrice]: validPatients };
-                                onPatientDetailsChange(newDetails);
-                                
-                                // Auto update examination count based on valid patients
-                                const count = validPatients.length;
-                                const newExams = { 
-                                    ...examinations, 
-                                    [activeModalPrice]: count > 0 ? count.toString() : '' 
-                                };
-                                onChange(newExams);
-                                
-                                setActiveModalPrice(null);
-                            }}
-                            onClose={() => setActiveModalPrice(null)}
-                            readOnly={readOnly}
-                        />
-                    )}
-                </div>
-            );
-        }
-
-        function PatientDetailsModal({ price, patients, fullPatientDetails, onSave, onClose, readOnly, selectedBranch, selectedDate, onOpenPriceModal }) {
-            const [localPatients, setLocalPatients] = useState((patients || []).map(p => ({
-                name: p.name || '',
-                prescriptionNo: p.prescriptionNo || '',
-                paymentMethod: p.paymentMethod === 'transfer' ? 'transfer' : 'cash'
-            })));
-            const [showInnerSeqModal, setShowInnerSeqModal] = useState(false);
-
-            // Merge current editing list with other price levels for real-time validation and hints
-            const currentMergedDetails = useMemo(() => {
-                return {
-                    ...(fullPatientDetails || {}),
-                    [price]: localPatients
-                };
-            }, [fullPatientDetails, price, localPatients]);
-
-            const innerSequenceInfo = useMemo(() => {
-                return getSequenceAnalysis(currentMergedDetails, true);
-            }, [currentMergedDetails]);
-
-            const addPatient = () => {
-                setLocalPatients([...localPatients, { name: '', prescriptionNo: '', paymentMethod: 'cash' }]);
-            };
-
-            const removePatient = (index) => {
-                setLocalPatients(localPatients.filter((_, i) => i !== index));
-            };
-
-            const updatePatient = (index, field, value) => {
-                const updated = [...localPatients];
-                updated[index] = { ...updated[index], [field]: value };
-                setLocalPatients(updated);
-            };
-
-            const getDuplicateInfo = (stt, currentIndex) => {
-                if (!stt || !stt.trim()) return null;
-                const trimmedSTT = stt.trim().toLowerCase();
-                
-                // Check in localPatients (same price)
-                for (let i = 0; i < localPatients.length; i++) {
-                    if (i !== currentIndex && localPatients[i].prescriptionNo && localPatients[i].prescriptionNo.trim().toLowerCase() === trimmedSTT) {
-                        return price; // Duplicated in current price
-                    }
-                }
-
-                // Check in other prices
-                for (const [otherPrice, otherPatients] of Object.entries(fullPatientDetails || {})) {
-                    if (otherPrice !== price.toString()) {
-                        if (Array.isArray(otherPatients)) {
-                            for (const op of otherPatients) {
-                                if (op.prescriptionNo && op.prescriptionNo.trim().toLowerCase() === trimmedSTT) {
-                                    return otherPrice;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                return null;
-            };
-
-            const transferCount = localPatients.filter(p => p.paymentMethod === 'transfer').length;
-            const cashCount = localPatients.length - transferCount;
-
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
-                    <div className="bg-white rounded-xl p-5 sm:p-6 max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl">
-                        <div className="flex justify-between items-center mb-3">
-                            <div>
-                                <h3 className="text-xl font-bold text-gray-800">Danh sách bé - {price}k</h3>
-                                {innerSequenceInfo.numericCount > 0 && (
-                                    <p className="text-[11px] text-gray-500">
-                                        Toa cao nhất hôm nay: <span className="font-bold text-blue-600">#{innerSequenceInfo.max || 0}</span>
-                                    </p>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setShowInnerSeqModal(true)}
-                                    className={`text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1 transition ${
-                                        innerSequenceInfo.hasJumps
-                                            ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 border border-amber-300'
-                                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
-                                    }`}
-                                    title="Kiểm tra toàn bộ STT toa hôm nay"
-                                >
-                                    <span>{innerSequenceInfo.hasJumps ? '⚠️' : '🔍'}</span>
-                                    <span>{innerSequenceInfo.hasJumps ? `Nhảy ${innerSequenceInfo.missingNumbers.length} số` : 'Kiểm tra STT'}</span>
-                                </button>
-                                <button onClick={onClose} className="text-gray-500 text-2xl hover:text-gray-700 leading-none">&times;</button>
-                            </div>
-                        </div>
-
-                        {/* Banner warning if jumped numbers exist */}
-                        {innerSequenceInfo.hasJumps && (
-                            <div 
-                                onClick={() => setShowInnerSeqModal(true)}
-                                className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900 cursor-pointer hover:bg-amber-100 transition shadow-sm"
-                                title="Nhấn để xem chi tiết các số toa bị nhảy"
-                            >
-                                <span className="font-semibold truncate">
-                                    ⚠️ Có STT bị nhảy: thiếu {innerSequenceInfo.missingNumbers.slice(0, 4).map(n => `#${n}`).join(', ')}{innerSequenceInfo.missingNumbers.length > 4 ? '...' : ''}
-                                </span>
-                                <span className="underline font-bold ml-1 whitespace-nowrap">Xem &rarr;</span>
-                            </div>
-                        )}
-
-                        {/* Payment count summary badge */}
-                        {localPatients.length > 0 && (
-                            <div className="flex items-center justify-between text-sm px-3.5 py-2 bg-slate-50 rounded-xl mb-2.5 border border-slate-200 shadow-sm">
-                                <span className="text-slate-700 font-semibold">Tổng: <strong className="text-slate-900 text-base">{localPatients.length}</strong> toa</span>
-                                <div className="flex items-center gap-2 font-bold text-xs sm:text-sm">
-                                    <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 shadow-sm">
-                                        💵 TM: {cashCount}
-                                    </span>
-                                    <span className="bg-purple-100 text-purple-800 px-2.5 py-1 rounded-lg border border-purple-200 shadow-sm">
-                                        💳 CK: {transferCount}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="overflow-y-auto flex-1 mb-4 space-y-2.5 pr-1">
-                            {localPatients.length === 0 && (
-                                <p className="text-gray-500 text-center italic py-4">Chưa có thông tin bé nào.</p>
-                            )}
-                            {localPatients.map((p, i) => {
-                                const duplicatePrice = getDuplicateInfo(p.prescriptionNo, i);
-                                const isTransfer = p.paymentMethod === 'transfer';
-                                return (
-                                    <div key={i} className="flex flex-col gap-1">
-                                        <div className={`flex gap-2 items-center bg-gray-50 p-2 rounded-lg border transition ${
-                                            duplicatePrice ? 'border-red-400 bg-red-50/40' : isTransfer ? 'border-purple-300 bg-purple-50/30' : 'border-gray-200'
-                                        }`}>
-                                            <input 
-                                                type="text"
-                                                placeholder="Tên bé"
-                                                value={p.name || ''}
-                                                onChange={e => updatePatient(i, 'name', e.target.value)}
-                                                disabled={readOnly}
-                                                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                                            />
-                                            <input 
-                                                type="text"
-                                                placeholder="STT Toa"
-                                                value={p.prescriptionNo || ''}
-                                                onChange={e => updatePatient(i, 'prescriptionNo', e.target.value)}
-                                                disabled={readOnly}
-                                                className="w-20 px-2 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-center bg-white font-medium"
-                                            />
-                                            <label 
-                                                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs sm:text-sm font-bold select-none cursor-pointer transition ${
-                                                    isTransfer 
-                                                        ? 'bg-purple-600 text-white border-purple-600 shadow-sm' 
-                                                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100 hover:border-gray-400'
-                                                }`}
-                                                title={isTransfer ? 'Đang chọn: Chuyển khoản (Click để chuyển sang Tiền mặt)' : 'Mặc định: Tiền mặt (Click nếu khách Chuyển khoản)'}
-                                            >
-                                                <input 
-                                                    type="checkbox"
-                                                    checked={isTransfer}
-                                                    onChange={e => {
-                                                        if (!readOnly) {
-                                                            updatePatient(i, 'paymentMethod', e.target.checked ? 'transfer' : 'cash');
-                                                        }
-                                                    }}
-                                                    disabled={readOnly}
-                                                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
-                                                />
-                                                <span className="whitespace-nowrap">
-                                                    {isTransfer ? '💳 CK' : 'CK'}
-                                                </span>
-                                            </label>
-                                            {!readOnly && (
-                                                <button 
-                                                    onClick={() => removePatient(i)} 
-                                                    className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded p-1 font-bold text-base transition"
-                                                    title="Xóa toa này"
-                                                >
-                                                    ✕
-                                                </button>
-                                            )}
-                                        </div>
-                                        {duplicatePrice !== null && (
-                                            <p className="text-xs text-red-600 font-semibold px-2">
-                                                ⚠️ Trùng STT toa ở mức giá {duplicatePrice}k
-                                            </p>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        {!readOnly && (
-                            <div className="flex gap-3">
-                                <button onClick={addPatient} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-200 transition">
-                                    ➕ Thêm bé
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        const hasDuplicate = localPatients.some((p, i) => getDuplicateInfo(p.prescriptionNo, i) !== null);
-                                        if (!hasDuplicate) {
-                                            onSave(localPatients.map(p => ({
-                                                name: (p.name || '').trim(),
-                                                prescriptionNo: (p.prescriptionNo || '').trim(),
-                                                paymentMethod: p.paymentMethod === 'transfer' ? 'transfer' : 'cash'
-                                            })));
-                                        }
-                                    }} 
-                                    disabled={localPatients.some((p, i) => getDuplicateInfo(p.prescriptionNo, i) !== null)}
-                                    className={`flex-1 py-3 rounded-lg font-semibold transition shadow ${localPatients.some((p, i) => getDuplicateInfo(p.prescriptionNo, i) !== null) ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-                                >
-                                    💾 Lưu
-                                </button>
-                            </div>
-                        )}
-                        {readOnly && (
-                            <button onClick={onClose} className="w-full bg-gray-500 text-white py-3 rounded-lg font-semibold hover:bg-gray-600 transition shadow">
-                                Đóng
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Modal sequence inspector within patient modal */}
-                    {showInnerSeqModal && (
-                        <PrescriptionSequenceModal 
-                            patientDetails={currentMergedDetails}
-                            selectedBranch={selectedBranch}
-                            selectedDate={selectedDate}
-                            onClose={() => setShowInnerSeqModal(false)}
-                            onOpenPriceModal={(targetPrice) => {
-                                setShowInnerSeqModal(false);
-                                if (targetPrice.toString() !== price.toString()) {
-                                    onClose();
-                                    onOpenPriceModal && onOpenPriceModal(targetPrice);
-                                }
+                            onSelectPrescription={(stt) => {
+                                setShowSequenceModal(false);
+                                handleJumpToPrescription(stt);
                             }}
                             readOnly={readOnly}
                         />

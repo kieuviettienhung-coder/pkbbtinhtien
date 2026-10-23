@@ -45,25 +45,26 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 - Kết nối Firebase Realtime Database thông qua `useEffect`, tự động fetch `dailyData` khi thay đổi ngày/chi nhánh.
 - Xử lý gửi báo cáo qua Telegram API (`buildDailyReport` -> `sendTelegram`).
 
-### `ExaminationSection` (Tiền khám bệnh)
-- Render danh sách các mức giá khám (bao gồm giá mặc định và giá tùy chỉnh).
-- Mỗi mức giá có ô nhập số lượng ca và một nút `📝` để mở Modal nhập chi tiết danh sách toa thuốc.
-- **Cảnh báo lệch số ca (Viền đỏ):** So sánh `validPatientsCount` (số bé hợp lệ trong danh sách) với `inputCount` (số ca gõ bên ngoài). Nếu lệch nhau (mismatch), ô nhập liệu sẽ tự động chuyển viền đỏ, nền đỏ để cảnh báo (áp dụng cho cả 2 chi nhánh Ngã Bảy và Thốt Nốt).
-- **Kiểm tra STT toa thuốc & Cảnh báo nhảy số:** Tự động tổng hợp toàn bộ số thứ tự (STT) toa trong ngày. Hiển thị banner trạng thái (xanh nếu liên tục, đỏ/cam nếu có STT bị nhảy/thiếu). Có nút bấm `🔍 Kiểm tra STT toa` để mở hộp thoại kiểm tra chi tiết.
-
-### `PatientDetailsModal` (Hộp thoại Danh sách toa thuốc)
-- Cho phép thêm/xóa/sửa danh sách bệnh nhân (`name` và `prescriptionNo`).
-- **Hình thức thanh toán (Tiền mặt / Chuyển khoản):** Mặc định mỗi toa là `Tiền mặt` không cần thao tác thêm. Nếu khách chuyển khoản, nhân viên chỉ cần click chọn ô `CK` (nút sẽ chuyển sang màu tím `💳 CK`).
-- Có thanh tóm tắt hiển thị tổng số toa `💵 TM` và `💳 CK` ngay trong modal.
-- Hiển thị tách biệt số tiền khám bằng Tiền mặt và Chuyển khoản ở `Tổng kết ngày` và `Báo cáo Telegram`.
+### `ExaminationSection` (Tiền khám bệnh - Nhập thẳng số tiền theo từng toa)
+- **Phương thức nhập trực tiếp thống nhất (Direct Prescription Entry):**
+  - Không còn chia thành 24 ô mức giá rời rạc (40k, 50k, 60k...) gây khó khăn khi nhập liệu.
+  - Thay vào đó là **Bảng danh sách toa khám trực quan**:
+    - **STT Toa:** Tự động tăng liên tục (`Toa 1`, `Toa 2`, `Toa 3`...). Có cảnh báo viền đỏ + huy hiệu `⚠️ Trùng` nếu nhập trùng số toa.
+    - **Tên bé / Bệnh nhân:** Ô nhập nhanh (tùy chọn).
+    - **Số tiền khám (k):** Cho phép nhập thẳng bất kỳ số tiền nào (ví dụ: `70`, `100`, `120`, `85`, `0`...). Đồng thời tích hợp dãy phím chọn nhanh mức giá phổ biến (`70k`, `80k`, `100k`, `120k`, `150k`, `0k`...) để nhân viên bấm 1 click là xong.
+    - **Hình thức thanh toán:** Nút bấm trực quan `💵 TM` (mặc định) và `💳 CK`.
+    - **Phím tắt Enter:** Nhấn Enter ở ô giá hoặc ô tên sẽ tự động thêm toa mới và focus con trỏ chuột vào dòng kế tiếp, giúp gõ liên tục bằng bàn phím siêu nhanh.
+    - **Nút thêm nhanh:** Hỗ trợ nút `➕ Thêm toa khám` và `⚡ +5 toa` liên tiếp.
+    - **Bộ lọc & Tìm kiếm:** Lọc theo `Tất cả`, `💵 Tiền mặt`, `💳 Chuyển khoản`, `0đ` và tìm kiếm nhanh theo số toa / tên bé.
+    - **Xem phân bổ mức giá:** Nút `📊 Xem mức giá` mở rộng bảng thống kê số ca theo từng mức giá để đối chiếu kế toán.
+- **Tương thích ngược 100% (Bidirectional Backward Compatibility):**
+  - Hàm `convertOldDataToPrescriptions`: Khi mở ngày cũ trong quá khứ, tự động chuyển đổi dữ liệu từ cấu trúc `examinations` và `patientDetails` cũ sang mảng toa thống nhất, đảm bảo lịch sử hiển thị đầy đủ 100% mà không bị mất dữ liệu.
+  - Hàm `convertPrescriptionsToOldFormat`: Khi nhân viên lưu hoặc chỉnh sửa toa mới, hệ thống tự động sinh ngược lại `examinations` và `patientDetails`.
+  - **Kết quả:** Các module **Báo cáo tháng (`ReportView`)**, **Báo cáo năm (`YearlyReportView`)**, **Báo cáo Telegram**, **Kiểm tra STT toa** và **Xuất Excel** hoạt động chuẩn xác 100% mà không bị gián đoạn hay sai lệch số liệu.
 - **Tách Tiền mặt & Chuyển khoản ở phần Còn lại cuối ngày:**
   - `netCash = examCash - doctor - expense - medicine`: Số tiền mặt thực tế còn lại trong két sau khi đã chi trả lương bác sĩ, chi phí và tiền thuốc.
   - `netTransfer = examTransfer`: Toàn bộ số tiền khám qua chuyển khoản ngân hàng.
-  - Tổng kết ngày và Báo cáo Telegram hiển thị rõ: `💵 Còn lại: +Xk (💵 TM: Yk, 💳 CK: Zk)` (và đối với Thốt Nốt có thêm `📦 Thuốc NB: +Tk`). Đảm bảo công thức kế toán luôn cân bằng tuyệt đối: `netCash + netTransfer = branchOwnNet` (+ `transferredMedicine` đối với Thốt Nốt).
-- Loại bỏ các dòng trống khi lưu.
-- **Auto update:** Tự động đếm số lượng bệnh nhân và điền vào ô "số ca" bên ngoài khi nhấn Lưu.
-- **Cảnh báo trùng STT & Khóa nút Lưu:** Phát hiện thời gian thực nếu STT bị trùng (cùng mức giá hoặc khác mức giá). Nếu có STT trùng, nút "Lưu" bị vô hiệu hóa (xám) để ngăn lưu sai sót.
-- **Gợi ý & Kiểm tra STT nhảy:** Hiển thị STT toa cao nhất đã nhập trong ngày (`Toa cao nhất: #X`) và banner cảnh báo nếu đang có số bị nhảy, tích hợp nút mở tra cứu ngay bên trong modal.
+  - Đảm bảo công thức kế toán luôn cân bằng tuyệt đối: `netCash + netTransfer = branchOwnNet` (+ `transferredMedicine` đối với Thốt Nốt).
 
 ### `PrescriptionSequenceModal` (Hộp thoại Tra cứu & Kiểm tra STT toa)
 - Phân tích dãy số thứ tự từ toa 1 (hoặc số nhỏ nhất) đến số lớn nhất.

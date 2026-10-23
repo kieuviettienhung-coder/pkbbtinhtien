@@ -41,7 +41,10 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 
 ### `App`
 - Quản lý toàn bộ state chính: `user`, `userRole`, `selectedBranch`, `selectedDate`, `dailyData`.
-- Xử lý màn hình Đăng nhập (phân 4 quyền: Admin Toàn quyền, Admin Ngã Bảy, NV Ngã Bảy, NV Thốt Nốt).
+- Xử lý màn hình Đăng nhập (phân 4 quyền: Admin Toàn quyền, Admin Ngã Bảy, NV Ngã Bảy, NV Thốt Nốt):
+  - Hỗ trợ form nhập mật khẩu trực tiếp trên giao diện (`<input type="password">`) kèm nút ẩn/hiện mật khẩu và nút submit bằng phím Enter, không phụ thuộc vào popup `window.prompt` (tránh bị chặn trên iOS Safari/Zalo webview).
+  - Tích hợp `sessionStorage` (`pkbb_auth_session`) giúp giữ phiên đăng nhập khi tải lại trang hoặc khi chuyển đổi ứng dụng trên điện thoại di động.
+  - Tích hợp `ErrorBoundary` cấp cao nhất bao bọc `<App />`, giúp ứng dụng luôn hiển thị thông báo lỗi thân thiện kèm nút xóa cache & tải lại nếu có ngoại lệ bất ngờ xảy ra, triệt tiêu hoàn toàn lỗi màn hình trắng.
 - Kết nối Firebase Realtime Database thông qua `useEffect`, tự động fetch `dailyData` khi thay đổi ngày/chi nhánh.
 - Xử lý gửi báo cáo qua Telegram API (`buildDailyReport` -> `sendTelegram`).
 

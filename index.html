@@ -52,7 +52,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
         const firebaseConfig = {
             apiKey: "AIzaSyCzMwOcNCcEuFVFHjqMEmrlMQs7DG-z-QI",
@@ -354,11 +354,40 @@
             const [ngaBayMonthlyData, setNgaBayMonthlyData] = useState({});
             const [ngaBayYearlyData, setNgaBayYearlyData] = useState({});
             const [customPrices, setCustomPrices] = useState([]);
-            const [showLogin, setShowLogin] = useState(true);
+            const [showLogin, setShowLogin] = useState(() => {
+                try {
+                    const saved = sessionStorage.getItem('pkbb_auth_session');
+                    return !saved;
+                } catch (e) {
+                    return true;
+                }
+            });
+            const [loginPasswordInput, setLoginPasswordInput] = useState('');
+            const [showPasswordText, setShowPasswordText] = useState(false);
+            const [loginError, setLoginError] = useState('');
             const [adminPassword, setAdminPassword] = useState('123456');
             const [adminNgaBayPassword, setAdminNgaBayPassword] = useState('adminngabay123');
             const [ngaBayPassword, setNgaBayPassword] = useState('ngabay123');
             const [thotNotPassword, setThotNotPassword] = useState('thotnot123');
+
+            // Khôi phục phiên đăng nhập từ sessionStorage nếu có
+            useEffect(() => {
+                try {
+                    const saved = sessionStorage.getItem('pkbb_auth_session');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (parsed && parsed.role) {
+                            setUser(parsed.user);
+                            setUserRole(parsed.role);
+                            setAllowedBranch(parsed.branch);
+                            if (parsed.selectedBranch) setSelectedBranch(parsed.selectedBranch);
+                            setShowLogin(false);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Session restore error:', e);
+                }
+            }, []);
             const [medicineList, setMedicineList] = useState([
                 { name: 'adkold new', price: 30 },
                 { name: 'air x cam', price: 50 },
@@ -736,59 +765,78 @@
                 }
             };
 
-            const handleLogin = () => {
-                // Hỏi mật khẩu
-                const password = prompt('🔐 Nhập mật khẩu:');
-                if (!password) return;
+            const handleLogin = (customPass = null) => {
+                let password = customPass;
+                if (password === null || password === undefined) {
+                    password = loginPasswordInput ? loginPasswordInput.trim() : '';
+                }
+
+                if (!password) {
+                    const promptedPass = prompt('🔐 Nhập mật khẩu:');
+                    if (!promptedPass) {
+                        setLoginError('Vui lòng nhập mật khẩu để đăng nhập.');
+                        return;
+                    }
+                    password = promptedPass.trim();
+                }
+
+                const applyLogin = (userData, role, allowed, selected) => {
+                    setUser(userData);
+                    setUserRole(role);
+                    setAllowedBranch(allowed);
+                    if (selected) setSelectedBranch(selected);
+                    setShowLogin(false);
+                    setLoginError('');
+                    setLoginPasswordInput('');
+                    try {
+                        sessionStorage.setItem('pkbb_auth_session', JSON.stringify({
+                            user: userData,
+                            role,
+                            branch: allowed,
+                            selectedBranch: selected || selectedBranch
+                        }));
+                    } catch (e) {}
+                };
 
                 // Kiểm tra Admin (toàn quyền)
                 if (password === adminPassword) {
-                    setUser({ role: 'admin', branch: null });
-                    setUserRole('admin');
-                    setAllowedBranch('all');
-                    setShowLogin(false);
+                    applyLogin({ role: 'admin', branch: null }, 'admin', 'all', null);
                     return;
                 }
 
                 // Kiểm tra Admin Ngã Bảy (admin nhưng chỉ thấy Ngã Bảy)
                 if (password === adminNgaBayPassword) {
-                    setUser({ role: 'admin', branch: 'nga-bay' });
-                    setUserRole('admin');
-                    setAllowedBranch('nga-bay');
-                    setSelectedBranch('nga-bay');
-                    setShowLogin(false);
+                    applyLogin({ role: 'admin', branch: 'nga-bay' }, 'admin', 'nga-bay', 'nga-bay');
                     return;
                 }
 
                 // Kiểm tra Nhân viên Ngã Bảy
                 if (password === ngaBayPassword) {
-                    setUser({ role: 'staff', branch: 'nga-bay' });
-                    setUserRole('staff');
-                    setAllowedBranch('nga-bay');
-                    setSelectedBranch('nga-bay');
-                    setShowLogin(false);
+                    applyLogin({ role: 'staff', branch: 'nga-bay' }, 'staff', 'nga-bay', 'nga-bay');
                     return;
                 }
 
                 // Kiểm tra Nhân viên Thốt Nốt
                 if (password === thotNotPassword) {
-                    setUser({ role: 'staff', branch: 'thot-not' });
-                    setUserRole('staff');
-                    setAllowedBranch('thot-not');
-                    setSelectedBranch('thot-not');
-                    setShowLogin(false);
+                    applyLogin({ role: 'staff', branch: 'thot-not' }, 'staff', 'thot-not', 'thot-not');
                     return;
                 }
 
                 // Sai mật khẩu
+                setLoginError('❌ Mật khẩu không chính xác. Vui lòng kiểm tra lại!');
                 alert('❌ Mật khẩu không đúng!');
             };
 
             const handleLogout = () => {
+                try {
+                    sessionStorage.removeItem('pkbb_auth_session');
+                } catch (e) {}
                 setUser(null);
                 setUserRole(null);
                 setAllowedBranch(null);
                 setShowLogin(true);
+                setLoginPasswordInput('');
+                setLoginError('');
                 setCurrentView('input');
                 setSelectedBranch('nga-bay');
             };
@@ -903,27 +951,80 @@
             // Login Screen
             if (showLogin) {
                 return (
-                    <div className="flex items-center justify-center min-h-screen px-4">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full">
+                    <div className="flex items-center justify-center min-h-screen px-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+                        <div className="bg-white p-8 sm:p-10 rounded-3xl shadow-2xl max-w-md w-full border border-gray-100 transform transition">
                             <div className="text-center mb-8">
-                                <h1 className="text-4xl font-bold text-blue-600 mb-2">
+                                <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white mb-4 shadow-lg text-4xl transform hover:scale-105 transition">
+                                    🏥
+                                </div>
+                                <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight mb-2">
                                     Phòng Khám Bách Bảo
                                 </h1>
-                                <p className="text-gray-600">Hệ thống quản lý thu chi</p>
+                                <p className="text-gray-500 text-sm font-medium">Hệ thống quản lý thu chi & toa thuốc</p>
                             </div>
                             
-                            <div className="space-y-4">
-                                <button
-                                    onClick={() => handleLogin()}
-                                    className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-4 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-purple-800 transition shadow-lg transform hover:scale-105"
-                                >
-                                    🔐 Đăng nhập
-                                </button>
-                            </div>
+                            <form 
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    handleLogin();
+                                }}
+                                className="space-y-5"
+                            >
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                                        🔐 Mật khẩu truy cập
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type={showPasswordText ? "text" : "password"}
+                                            value={loginPasswordInput}
+                                            onChange={(e) => {
+                                                setLoginPasswordInput(e.target.value);
+                                                if (loginError) setLoginError('');
+                                            }}
+                                            placeholder="Nhập mật khẩu..."
+                                            autoFocus
+                                            className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none text-base pr-12 transition bg-gray-50/50 hover:bg-white focus:bg-white"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPasswordText(!showPasswordText)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 p-1.5 text-sm font-medium transition"
+                                            title={showPasswordText ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                                        >
+                                            {showPasswordText ? '🙈' : '👁️'}
+                                        </button>
+                                    </div>
+                                    {loginError && (
+                                        <div className="mt-2.5 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs sm:text-sm text-red-600 font-semibold flex items-center gap-1.5 animate-pulse">
+                                            <span>⚠️</span>
+                                            <span>{loginError}</span>
+                                        </div>
+                                    )}
+                                </div>
 
-                            <div className="mt-6 text-center">
-                                <p className="text-xs text-gray-500">
-                                    © 2025 Phòng Khám Bách Bảo - Quản lý nội bộ
+                                <button
+                                    type="submit"
+                                    className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white py-3.5 px-6 rounded-xl font-bold text-base shadow-lg shadow-blue-500/20 hover:shadow-xl transition transform active:scale-98 flex items-center justify-center gap-2"
+                                >
+                                    <span>Đăng nhập hệ thống</span>
+                                    <span>➔</span>
+                                </button>
+
+                                <div className="pt-2 text-center">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLogin()}
+                                        className="text-xs text-indigo-600 hover:text-indigo-800 underline font-medium transition"
+                                    >
+                                        🔑 Hoặc mở hộp thoại nhập mật khẩu (prompt)
+                                    </button>
+                                </div>
+                            </form>
+
+                            <div className="mt-8 pt-5 border-t border-gray-100 text-center">
+                                <p className="text-xs text-gray-400">
+                                    © 2025 - 2026 Phòng Khám Bách Bảo • Quản lý nội bộ
                                 </p>
                             </div>
                         </div>
@@ -5183,9 +5284,65 @@
             );
         }
 
+        // Error Boundary Component
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+            componentDidCatch(error, errorInfo) {
+                console.error("ErrorBoundary caught:", error, errorInfo);
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
+                            <div className="bg-white border-2 border-red-200 rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 text-center">
+                                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                                    ⚠️
+                                </div>
+                                <h2 className="text-2xl font-bold text-gray-800 mb-2">Đã xảy ra sự cố hiển thị</h2>
+                                <p className="text-sm text-gray-600 mb-4">
+                                    Hệ thống gặp lỗi không mong muốn khi hiển thị giao diện. Toàn bộ dữ liệu của bạn trên máy chủ vẫn an toàn.
+                                </p>
+                                <div className="bg-red-50 text-red-700 p-3 rounded-xl text-xs font-mono text-left mb-6 overflow-x-auto border border-red-200 max-h-40">
+                                    {this.state.error ? this.state.error.toString() : 'Unknown error'}
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => {
+                                            try { sessionStorage.clear(); } catch(e){}
+                                            window.location.reload();
+                                        }}
+                                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-4 rounded-xl transition text-sm"
+                                    >
+                                        🧹 Xóa cache & Tải lại
+                                    </button>
+                                    <button
+                                        onClick={() => window.location.reload()}
+                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition text-sm shadow"
+                                    >
+                                        🔄 Tải lại trang
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
         // Render App
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>
+        );
     </script>
 
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>

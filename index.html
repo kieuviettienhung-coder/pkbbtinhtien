@@ -3005,22 +3005,6 @@
                 setTimeout(() => setHighlightedRowId(null), 2000);
             };
 
-            // Thêm nhanh 5 toa trống để nhân viên nhập liên tiếp
-            const handleAddMultiple = (count = 5) => {
-                const newRows = [];
-                for (let i = 1; i <= count; i++) {
-                    newRows.push({
-                        id: 'rx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7) + '_' + i,
-                        prescriptionNo: '',
-                        name: '',
-                        price: '',
-                        paymentMethod: 'cash'
-                    });
-                }
-                const updated = [...localPrescriptions, ...newRows];
-                commitPrescriptions(updated);
-            };
-
             // Chỉnh sửa từng trường của toa
             const handleRowChange = (id, field, value) => {
                 const updated = localPrescriptions.map(row => {
@@ -3051,14 +3035,6 @@
                 if (confirm(`Bạn có chắc muốn xóa ${sttText}?`)) {
                     const updated = localPrescriptions.filter(r => r.id !== id);
                     commitPrescriptions(updated);
-                }
-            };
-
-            // Xóa tất cả các toa của ngày
-            const handleClearAll = () => {
-                if (localPrescriptions.length === 0) return;
-                if (confirm(`⚠️ Bạn có chắc muốn xóa toàn bộ ${localPrescriptions.length} toa khám của ngày ${selectedDate}?`)) {
-                    commitPrescriptions([]);
                 }
             };
 
@@ -3244,24 +3220,6 @@
 
                         {!readOnly && (
                             <div className="flex items-center gap-1.5 flex-wrap self-end sm:self-auto">
-                                {localPrescriptions.length > 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={handleClearAll}
-                                        className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1.5 rounded-lg transition font-semibold"
-                                        title="Xóa tất cả các toa của ngày này"
-                                    >
-                                        🗑️ Xóa hết
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => handleAddMultiple(5)}
-                                    className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-xs transition flex items-center gap-1 shadow-xs"
-                                    title="Thêm 5 dòng trống"
-                                >
-                                    <span>⚡</span> +5 toa trống
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => handleAddRow()}
@@ -3593,14 +3551,6 @@
                                 💡 Mẹo gõ nhanh: Gõ <b>STT</b> ➔ <kbd className="px-1 py-0.5 bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold">Enter</kbd> ➔ gõ <b>Giá</b> ➔ <kbd className="px-1 py-0.5 bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold">Enter</kbd> để tạo toa kế tiếp.
                             </span>
                             <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => handleAddMultiple(5)}
-                                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-xs transition flex items-center gap-1 shadow-2xs"
-                                    title="Thêm 5 dòng trống"
-                                >
-                                    <span>⚡</span> +5 toa trống
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => handleAddRow()}

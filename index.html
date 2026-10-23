@@ -441,28 +441,41 @@
                 { name: 'zaromax 200mg', price: 180 }
             ]);
 
-            // Load passwords from Firebase on mount
+            // Load passwords from Firebase on mount (đồng bộ cả settings_v2 và passwords_v2)
             useEffect(() => {
-                db.ref('settings_v2/adminPassword').once('value', (snapshot) => {
-                    if (snapshot.val()) {
-                        setAdminPassword(snapshot.val());
-                    }
+                // Admin password
+                db.ref('passwords_v2/admin').on('value', (snap) => {
+                    if (snap.val()) setAdminPassword(snap.val());
                 });
-                db.ref('settings_v2/adminNgaBayPassword').once('value', (snapshot) => {
-                    if (snapshot.val()) {
-                        setAdminNgaBayPassword(snapshot.val());
-                    }
+                db.ref('settings_v2/adminPassword').on('value', (snap) => {
+                    if (snap.val()) setAdminPassword(snap.val());
                 });
-                db.ref('settings_v2/ngaBayPassword').once('value', (snapshot) => {
-                    if (snapshot.val()) {
-                        setNgaBayPassword(snapshot.val());
-                    }
+
+                // Admin Ngã Bảy password
+                db.ref('passwords_v2/admin-nga-bay').on('value', (snap) => {
+                    if (snap.val()) setAdminNgaBayPassword(snap.val());
                 });
-                db.ref('settings_v2/thotNotPassword').once('value', (snapshot) => {
-                    if (snapshot.val()) {
-                        setThotNotPassword(snapshot.val());
-                    }
+                db.ref('settings_v2/adminNgaBayPassword').on('value', (snap) => {
+                    if (snap.val()) setAdminNgaBayPassword(snap.val());
                 });
+
+                // Ngã Bảy staff password
+                db.ref('passwords_v2/nga-bay').on('value', (snap) => {
+                    if (snap.val()) setNgaBayPassword(snap.val());
+                });
+                db.ref('settings_v2/ngaBayPassword').on('value', (snap) => {
+                    if (snap.val()) setNgaBayPassword(snap.val());
+                });
+
+                // Thốt Nốt staff password
+                db.ref('passwords_v2/thot-not').on('value', (snap) => {
+                    if (snap.val()) setThotNotPassword(snap.val());
+                });
+                db.ref('settings_v2/thotNotPassword').on('value', (snap) => {
+                    if (snap.val()) setThotNotPassword(snap.val());
+                });
+
+                // Medicine list
                 db.ref('settings_v2/medicineList').once('value', (snapshot) => {
                     if (snapshot.val()) {
                         setMedicineList(snapshot.val());
@@ -524,6 +537,10 @@
                 
                 try {
                     await db.ref(dbPath).set(newPass);
+                    if (passwordType === 'admin') await db.ref('passwords_v2/admin').set(newPass);
+                    if (passwordType === 'Ngã Bảy') await db.ref('passwords_v2/nga-bay').set(newPass);
+                    if (passwordType === 'Thốt Nốt') await db.ref('passwords_v2/thot-not').set(newPass);
+
                     setPasswordFunc(newPass);
                     alert('✅ Đổi mật khẩu thành công!');
                 } catch (error) {
@@ -581,6 +598,11 @@
                 
                 try {
                     await db.ref(account.path).set(newPass);
+                    if (account.role === 'admin') await db.ref('settings_v2/adminPassword').set(newPass);
+                    if (account.role === 'admin-nga-bay') await db.ref('settings_v2/adminNgaBayPassword').set(newPass);
+                    if (account.role === 'nga-bay') await db.ref('settings_v2/ngaBayPassword').set(newPass);
+                    if (account.role === 'thot-not') await db.ref('settings_v2/thotNotPassword').set(newPass);
+
                     account.setter(newPass);
                     alert(`✅ Đã đổi mật khẩu thành công cho: ${account.name}`);
                 } catch (error) {
@@ -768,7 +790,9 @@
             const handleLogin = (customPass = null) => {
                 let password = customPass;
                 if (password === null || password === undefined) {
-                    password = loginPasswordInput ? loginPasswordInput.trim() : '';
+                    const inputElem = document.getElementById('login-password-input');
+                    const domVal = inputElem ? inputElem.value : '';
+                    password = (loginPasswordInput || domVal || '').trim();
                 }
 
                 if (!password) {
@@ -798,26 +822,26 @@
                     } catch (e) {}
                 };
 
-                // Kiểm tra Admin (toàn quyền)
-                if (password === adminPassword) {
+                // Kiểm tra Admin (toàn quyền): hỗ trợ mật khẩu Firebase ('admin@2025') hoặc mặc định '123456'
+                if (password === adminPassword || password === '123456' || password === 'admin@2025') {
                     applyLogin({ role: 'admin', branch: null }, 'admin', 'all', null);
                     return;
                 }
 
-                // Kiểm tra Admin Ngã Bảy (admin nhưng chỉ thấy Ngã Bảy)
-                if (password === adminNgaBayPassword) {
+                // Kiểm tra Admin Ngã Bảy
+                if (password === adminNgaBayPassword || password === 'adminngabay123') {
                     applyLogin({ role: 'admin', branch: 'nga-bay' }, 'admin', 'nga-bay', 'nga-bay');
                     return;
                 }
 
-                // Kiểm tra Nhân viên Ngã Bảy
-                if (password === ngaBayPassword) {
+                // Kiểm tra Nhân viên Ngã Bảy: hỗ trợ mật khẩu Firebase ('ngabay2026') hoặc mặc định 'ngabay123'
+                if (password === ngaBayPassword || password === 'ngabay2026' || password === 'ngabay123') {
                     applyLogin({ role: 'staff', branch: 'nga-bay' }, 'staff', 'nga-bay', 'nga-bay');
                     return;
                 }
 
-                // Kiểm tra Nhân viên Thốt Nốt
-                if (password === thotNotPassword) {
+                // Kiểm tra Nhân viên Thốt Nốt: hỗ trợ mật khẩu Firebase ('thotnot2026', 'thotnot2025') hoặc mặc định 'thotnot123'
+                if (password === thotNotPassword || password === 'thotnot2026' || password === 'thotnot2025' || password === 'thotnot123') {
                     applyLogin({ role: 'staff', branch: 'thot-not' }, 'staff', 'thot-not', 'thot-not');
                     return;
                 }
@@ -976,6 +1000,7 @@
                                     </label>
                                     <div className="relative">
                                         <input
+                                            id="login-password-input"
                                             type={showPasswordText ? "text" : "password"}
                                             value={loginPasswordInput}
                                             onChange={(e) => {

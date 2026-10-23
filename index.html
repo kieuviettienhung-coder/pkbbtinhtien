@@ -380,7 +380,11 @@
                             setUser(parsed.user);
                             setUserRole(parsed.role);
                             setAllowedBranch(parsed.branch);
-                            if (parsed.selectedBranch) setSelectedBranch(parsed.selectedBranch);
+                            if (parsed.branch && parsed.branch !== 'all') {
+                                setSelectedBranch(parsed.branch);
+                            } else if (parsed.selectedBranch) {
+                                setSelectedBranch(parsed.selectedBranch);
+                            }
                             setShowLogin(false);
                         }
                     }
@@ -1189,7 +1193,7 @@
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">Chi nhánh</label>
-                                {allowedBranch === 'all' || userRole === 'admin' ? (
+                                {allowedBranch === 'all' ? (
                                     <select
                                         value={selectedBranch}
                                         onChange={(e) => {

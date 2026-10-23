@@ -2932,7 +2932,7 @@
             );
         }
 
-        // Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập thẳng số tiền theo từng toa)
+// Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập toa ở trên, lưu xuống danh sách phía dưới)
         function ExaminationSection({ 
             examinations = {}, 
             patientDetails = {}, 
@@ -2946,13 +2946,25 @@
             selectedBranch, 
             selectedDate 
         }) {
-            // Danh sách các toa khám đang nhập
+            // Danh sách các toa khám đã lưu
             const [localPrescriptions, setLocalPrescriptions] = useState(() => {
                 if (Array.isArray(propPrescriptions) && propPrescriptions.length > 0) {
                     return propPrescriptions;
                 }
                 return convertOldDataToPrescriptions(examinations, patientDetails);
             });
+
+            // State form nhập toa mới ở trên cùng
+            const [newStt, setNewStt] = useState('');
+            const [newName, setNewName] = useState('');
+            const [newPrice, setNewPrice] = useState('');
+            const [newPaymentMethod, setNewPaymentMethod] = useState('cash'); // 'cash' | 'transfer'
+
+            // State chỉnh sửa toa trong danh sách
+            const [editingRowId, setEditingRowId] = useState(null);
+            const [editForm, setEditForm] = useState({ prescriptionNo: '', name: '', price: '', paymentMethod: 'cash' });
+
+            // State tìm kiếm và lọc
             const [searchTerm, setSearchTerm] = useState('');
             const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'transfer' | 'cash' | 'zero'
             const [showSequenceModal, setShowSequenceModal] = useState(false);
@@ -2985,31 +2997,93 @@
                 if (onPatientDetailsChange) onPatientDetailsChange(newDetails);
             };
 
-            // Thêm 1 toa mới: Số thứ tự để trống để nhân viên tự nhập
-            const handleAddRow = (customStt = null) => {
-                const nextStt = customStt !== null ? customStt.toString() : '';
+            // Lưu toa mới từ form phía trên xuống danh sách phía dưới
+            const handleSaveNewPrescription = (e) => {
+                if (e) e.preventDefault();
+                const trimmedStt = String(newStt || '').trim();
+                const trimmedPrice = String(newPrice || '').trim();
+
+                if (!trimmedStt && !trimmedPrice) {
+                    alert('⚠️ Vui lòng nhập số toa và số tiền khám!');
+                    const el = document.getElementById('new-rx-stt-input');
+                    if (el) el.focus();
+                    return;
+                }
+
+                if (trimmedPrice === '') {
+                    alert('⚠️ Vui lòng nhập số tiền khám (k)!');
+                    const el = document.getElementById('new-rx-price-input');
+                    if (el) el.focus();
+                    return;
+                }
+
                 const newRow = {
                     id: 'rx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-                    prescriptionNo: nextStt,
-                    name: '',
-                    price: '',
-                    paymentMethod: 'cash'
+                    prescriptionNo: trimmedStt,
+                    name: String(newName || '').trim(),
+                    price: trimmedPrice,
+                    paymentMethod: newPaymentMethod
                 };
-                const updated = [...localPrescriptions, newRow];
+
+                // Đưa toa mới lên đầu danh sách phía dưới để nhân viên thấy ngay toa vừa lưu
+                const updated = [newRow, ...localPrescriptions];
                 commitPrescriptions(updated);
 
+                // Xóa trắng form để nhập tiếp toa sau
+                setNewStt('');
+                setNewPrice('');
+                setNewName('');
+                setNewPaymentMethod('cash');
+
+                // Hiệu ứng highlight toa vừa lưu
                 setHighlightedRowId(newRow.id);
+                setTimeout(() => setHighlightedRowId(null), 2500);
+
+                // Tự động focus lại ô STT
                 setTimeout(() => {
-                    const el = document.getElementById(`stt-input-${newRow.id}`);
+                    const el = document.getElementById('new-rx-stt-input');
                     if (el) {
                         el.focus();
                         el.select && el.select();
                     }
                 }, 50);
-                setTimeout(() => setHighlightedRowId(null), 2000);
             };
 
-            // Chỉnh sửa từng trường của toa
+            // Bắt đầu sửa 1 toa trong danh sách
+            const handleStartEdit = (row) => {
+                setEditingRowId(row.id);
+                setEditForm({
+                    prescriptionNo: row.prescriptionNo || '',
+                    name: row.name || '',
+                    price: row.price !== '' ? row.price : '',
+                    paymentMethod: row.paymentMethod || 'cash'
+                });
+            };
+
+            // Lưu chỉnh sửa toa
+            const handleSaveEdit = (id) => {
+                const updated = localPrescriptions.map(r => {
+                    if (r.id === id) {
+                        return {
+                            ...r,
+                            prescriptionNo: String(editForm.prescriptionNo || '').trim(),
+                            name: String(editForm.name || '').trim(),
+                            price: String(editForm.price || '').trim(),
+                            paymentMethod: editForm.paymentMethod
+                        };
+                    }
+                    return r;
+                });
+                commitPrescriptions(updated);
+                setEditingRowId(null);
+            };
+
+            // Hủy chỉnh sửa
+            const handleCancelEdit = () => {
+                setEditingRowId(null);
+            };
+
+            // Chỉnh sửa từng trường của toa (cho bảng desktop)
             const handleRowChange = (id, field, value) => {
                 const updated = localPrescriptions.map(row => {
                     if (row.id === id) {
@@ -3020,7 +3094,7 @@
                 commitPrescriptions(updated);
             };
 
-            // Đổi hình thức thanh toán (Tiền mặt <-> Chuyển khoản)
+            // Đổi hình thức thanh toán (Tiền mặt <-> Chuyển khoản) với 1 chạm
             const handleTogglePayment = (id) => {
                 const updated = localPrescriptions.map(row => {
                     if (row.id === id) {
@@ -3039,6 +3113,7 @@
                 if (confirm(`Bạn có chắc muốn xóa ${sttText}?`)) {
                     const updated = localPrescriptions.filter(r => r.id !== id);
                     commitPrescriptions(updated);
+                    if (editingRowId === id) setEditingRowId(null);
                 }
             };
 
@@ -3055,19 +3130,19 @@
                 }
             };
 
-            // Nhấn Enter ở ô giá hoặc tên để tự động thêm toa tiếp theo
-            const handleKeyDown = (e, index) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (index === localPrescriptions.length - 1) {
-                        handleAddRow();
-                    } else {
-                        const nextRow = localPrescriptions[index + 1];
-                        if (nextRow) {
-                            const nextInput = document.getElementById(`price-input-${nextRow.id}`);
-                            if (nextInput) nextInput.focus();
-                        }
-                    }
+            // Hỗ trợ thêm toa thiếu từ modal kiểm tra số nhảy
+            const handleAddRow = (customStt = null) => {
+                if (customStt !== null) {
+                    setNewStt(customStt.toString());
+                    setTimeout(() => {
+                        const el = document.getElementById('new-rx-price-input');
+                        if (el) el.focus();
+                    }, 50);
+                } else {
+                    setTimeout(() => {
+                        const el = document.getElementById('new-rx-stt-input');
+                        if (el) el.focus();
+                    }, 50);
                 }
             };
 
@@ -3145,7 +3220,7 @@
                 return getSequenceAnalysis(currentPatientDetails, true);
             }, [currentPatientDetails]);
 
-            // Phát hiện trùng STT toa
+            // Phát hiện trùng STT toa trong danh sách
             const duplicateSttSet = useMemo(() => {
                 const counts = {};
                 localPrescriptions.forEach(p => {
@@ -3158,6 +3233,13 @@
                 });
                 return dups;
             }, [localPrescriptions]);
+
+            // Kiểm tra xem STT đang gõ ở form trên có trùng với toa đã có không
+            const isNewSttDup = useMemo(() => {
+                const raw = String(newStt || '').trim();
+                if (!raw) return false;
+                return localPrescriptions.some(p => String(p.prescriptionNo || '').trim() === raw);
+            }, [newStt, localPrescriptions]);
 
             // Danh sách sau khi lọc và tìm kiếm
             const filteredPrescriptions = useMemo(() => {
@@ -3182,17 +3264,17 @@
             }, [localPrescriptions, paymentFilter, searchTerm]);
 
             return (
-                <div className="bg-white rounded-2xl shadow-md p-3.5 sm:p-5 border border-gray-100">
+                <div className="bg-white rounded-2xl shadow-md p-3 sm:p-5 border border-gray-100">
                     {/* Header Toolbar */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-gray-200">
+                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-gray-200 flex-wrap">
                         <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="text-lg sm:text-xl font-black text-gray-800 tracking-tight flex items-center gap-1.5">
+                            <h2 className="text-base sm:text-xl font-black text-gray-800 tracking-tight flex items-center gap-1.5">
                                 <span>💰</span> Tiền khám bệnh
                             </h2>
                             <button
                                 type="button"
                                 onClick={() => setShowSequenceModal(true)}
-                                className={`text-xs px-2.5 py-1 rounded-xl font-bold flex items-center gap-1 transition shadow-xs ${
+                                className={`text-xs px-2.5 py-1 rounded-xl font-bold flex items-center gap-1 transition shadow-2xs ${
                                     sequenceInfo.hasJumps 
                                         ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 animate-pulse' 
                                         : sequenceInfo.numericCount > 0 
@@ -3204,7 +3286,7 @@
                                 <span>{sequenceInfo.hasJumps ? '⚠️' : sequenceInfo.numericCount > 0 ? '✅' : '🔍'}</span>
                                 <span>
                                     {sequenceInfo.hasJumps 
-                                        ? `Nhảy ${sequenceInfo.missingNumbers.length} số toa` 
+                                        ? `Nhảy ${sequenceInfo.missingNumbers.length} số` 
                                         : sequenceInfo.numericCount > 0 
                                             ? `STT (${sequenceInfo.numericCount} toa)` 
                                             : 'Kiểm tra STT'}
@@ -3222,19 +3304,155 @@
                             </button>
                         </div>
 
-                        {!readOnly && (
-                            <div className="flex items-center gap-1.5 flex-wrap self-end sm:self-auto">
-                                <button
-                                    type="button"
-                                    onClick={() => handleAddRow()}
-                                    className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-bold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm active:scale-95"
-                                    title="Thêm toa khám mới (Enter)"
-                                >
-                                    <span>➕</span> Thêm toa khám
-                                </button>
+                        {stats.maxStt > 0 && (
+                            <div className="text-xs text-gray-500 font-semibold">
+                                Toa lớn nhất: <span className="font-bold text-gray-800">#{stats.maxStt}</span>
                             </div>
                         )}
                     </div>
+
+                    {/* FORM NHẬP TOA MỚI Ở TRÊN CÙNG (DÀNH RIÊNG TỐI ƯU CHO ĐIỆN THOẠI & MÁY TÍNH) */}
+                    {!readOnly && (
+                        <div className="mt-3 bg-gradient-to-br from-blue-50/90 via-indigo-50/70 to-purple-50/60 rounded-2xl p-3 sm:p-4 border-2 border-blue-200/90 shadow-sm">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-xs sm:text-sm font-extrabold text-blue-900 flex items-center gap-1.5 uppercase tracking-wide">
+                                    <span>➕</span> Nhập toa khám mới
+                                </h3>
+                                <span className="text-[11px] text-blue-700 font-semibold hidden sm:inline">
+                                    💡 Gõ xong nhấn Enter hoặc bấm "Lưu toa"
+                                </span>
+                            </div>
+
+                            <form onSubmit={handleSaveNewPrescription} className="space-y-2">
+                                {/* Dòng nhập: STT, Tiền khám và Tên bé */}
+                                <div className="grid grid-cols-12 gap-2">
+                                    {/* Số toa */}
+                                    <div className="col-span-4 sm:col-span-3">
+                                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                            Số toa <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            id="new-rx-stt-input"
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={newStt}
+                                            onChange={(e) => setNewStt(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    const priceEl = document.getElementById('new-rx-price-input');
+                                                    if (priceEl) priceEl.focus();
+                                                }
+                                            }}
+                                            placeholder={stats.maxStt > 0 ? `${stats.maxStt + 1}` : "STT"}
+                                            className={`w-full text-center font-black text-base sm:text-lg py-2 px-2 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${
+                                                isNewSttDup 
+                                                    ? 'border-red-400 ring-2 ring-red-300 text-red-700' 
+                                                    : 'border-gray-300 focus:ring-blue-500 text-gray-900'
+                                            }`}
+                                        />
+                                        {isNewSttDup && (
+                                            <p className="text-[10px] text-red-600 font-bold mt-0.5 text-center leading-tight">
+                                                ⚠️ Đã có #{newStt.trim()}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Tiền khám */}
+                                    <div className="col-span-8 sm:col-span-4">
+                                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                            Tiền khám (k) <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                id="new-rx-price-input"
+                                                type="number"
+                                                step="any"
+                                                inputMode="numeric"
+                                                value={newPrice}
+                                                onChange={(e) => setNewPrice(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleSaveNewPrescription();
+                                                    }
+                                                }}
+                                                placeholder="Ví dụ: 70, 80, 100"
+                                                className="w-full text-right font-black text-base sm:text-lg py-2 pr-7 pl-3 rounded-xl border border-gray-300 bg-white text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                            />
+                                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
+                                                k
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Tên bé / Bệnh nhân */}
+                                    <div className="col-span-12 sm:col-span-5">
+                                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                            Tên bé / Bệnh nhân <span className="text-gray-400 font-normal">(tùy chọn)</span>
+                                        </label>
+                                        <input
+                                            id="new-rx-name-input"
+                                            type="text"
+                                            value={newName}
+                                            onChange={(e) => setNewName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleSaveNewPrescription();
+                                                }
+                                            }}
+                                            placeholder="Tên bé..."
+                                            className="w-full text-sm py-2 px-3 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Dòng chọn hình thức thanh toán & Nút Lưu */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                                    {/* 2 nút chọn TM / CK to, dễ bấm trên màn hình điện thoại */}
+                                    <div className="grid grid-cols-2 gap-2 flex-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setNewPaymentMethod('cash')}
+                                            className={`py-2 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition border-2 ${
+                                                newPaymentMethod === 'cash'
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                                    : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                                            }`}
+                                        >
+                                            <span>💵</span>
+                                            <span>Tiền mặt</span>
+                                            {newPaymentMethod === 'cash' && <span>✓</span>}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setNewPaymentMethod('transfer')}
+                                            className={`py-2 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition border-2 ${
+                                                newPaymentMethod === 'transfer'
+                                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                                    : 'bg-white text-purple-800 border-purple-200 hover:bg-purple-50'
+                                            }`}
+                                        >
+                                            <span>💳</span>
+                                            <span>Chuyển khoản</span>
+                                            {newPaymentMethod === 'transfer' && <span>✓</span>}
+                                        </button>
+                                    </div>
+
+                                    {/* Nút LƯU TOA to, bấm ngón tay cái rất êm */}
+                                    <button
+                                        type="submit"
+                                        className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-98 text-white rounded-xl font-extrabold text-sm sm:text-base transition shadow-md flex items-center justify-center gap-1.5"
+                                    >
+                                        <span>💾</span>
+                                        <span>Lưu toa khám</span>
+                                        <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded font-bold">↵</span>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
 
                     {/* Compact Stats Overview Banner */}
                     <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 sm:p-3 bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-purple-50/80 rounded-xl border border-blue-100/90 my-2.5">
@@ -3259,12 +3477,6 @@
                                 <span className="text-xs text-purple-600 font-semibold">({stats.transferCases} toa)</span>
                             </div>
                         </div>
-
-                        {stats.maxStt > 0 && (
-                            <div className="text-xs text-gray-500 font-semibold">
-                                Số toa lớn nhất: <span className="font-bold text-gray-800">#{stats.maxStt}</span>
-                            </div>
-                        )}
                     </div>
 
                     {/* Collapsible Price Breakdown */}
@@ -3364,7 +3576,7 @@
                         </div>
                     </div>
 
-                    {/* Prescriptions Table / List */}
+                    {/* DANH SÁCH TOA PHÍA DƯỚI */}
                     {localPrescriptions.length === 0 ? (
                         <div className="text-center py-8 px-4 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50 my-2">
                             <div className="text-3xl mb-1.5">📋</div>
@@ -3372,198 +3584,319 @@
                                 Chưa có toa khám nào trong ngày {selectedDate}
                             </h3>
                             <p className="text-xs text-gray-500 mt-0.5 max-w-md mx-auto">
-                                Bấm nút bên dưới để thêm toa và tự nhập số thứ tự toa cùng số tiền khám.
+                                Hãy nhập số toa và tiền khám ở khung phía trên, sau đó bấm <b>Lưu toa khám</b>.
                             </p>
-                            {!readOnly && (
-                                <div className="mt-3.5 flex justify-center gap-2 flex-wrap">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAddRow()}
-                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs sm:text-sm transition shadow-sm flex items-center gap-1.5"
-                                    >
-                                        <span>➕</span> Thêm toa khám
-                                    </button>
-                                </div>
-                            )}
                         </div>
                     ) : filteredPrescriptions.length === 0 ? (
                         <div className="text-center py-6 text-xs text-gray-400 italic">
                             Không tìm thấy toa nào phù hợp với bộ lọc hoặc từ khóa tìm kiếm.
                         </div>
                     ) : (
-                        <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-2xs mt-1">
-                            <table className="w-full text-left text-xs sm:text-sm border-collapse min-w-[500px]">
-                                <thead>
-                                    <tr className="bg-gray-100/90 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
-                                        <th className="py-2 px-2 w-20 sm:w-24 text-center">STT Toa</th>
-                                        <th className="py-2 px-3">Tên bé / Bệnh nhân</th>
-                                        <th className="py-2 px-3 w-32 sm:w-36">Tiền khám (k)</th>
-                                        <th className="py-2 px-2 w-24 sm:w-28 text-center">Hình thức</th>
-                                        {!readOnly && <th className="py-2 px-1 w-10 text-center">Xóa</th>}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100 bg-white">
-                                    {filteredPrescriptions.map((row, index) => {
-                                        const sttStr = String(row.prescriptionNo || '').trim();
-                                        const isDup = sttStr !== '' && duplicateSttSet.has(sttStr);
-                                        const isHighlighted = highlightedRowId === row.id;
+                        <>
+                            {/* 1. GIAO DIỆN ĐIỆN THOẠI: DẠNG THẺ (CARD VIEW) CỰC KỲ DỄ THAO TÁC */}
+                            <div className="block sm:hidden space-y-2 mt-2">
+                                {filteredPrescriptions.map((row) => {
+                                    const sttStr = String(row.prescriptionNo || '').trim();
+                                    const isDup = sttStr !== '' && duplicateSttSet.has(sttStr);
+                                    const isHighlighted = highlightedRowId === row.id;
+                                    const isEditing = editingRowId === row.id;
 
+                                    if (isEditing) {
                                         return (
-                                            <tr 
-                                                key={row.id} 
-                                                id={`row-${row.id}`}
-                                                className={`transition-colors duration-150 ${
-                                                    isHighlighted 
-                                                        ? 'bg-amber-100/80 ring-2 ring-amber-400' 
-                                                        : row.paymentMethod === 'transfer' 
-                                                            ? 'hover:bg-purple-50/40' 
-                                                            : 'hover:bg-blue-50/40'
-                                                }`}
-                                            >
-                                                {/* STT Toa - Nhân viên tự nhập */}
-                                                <td className="py-1.5 px-2 text-center align-middle">
-                                                    <div className="flex flex-col items-center">
-                                                        <input
-                                                            id={`stt-input-${row.id}`}
-                                                            type="text"
-                                                            value={row.prescriptionNo}
-                                                            onChange={(e) => handleRowChange(row.id, 'prescriptionNo', e.target.value)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    const priceEl = document.getElementById(`price-input-${row.id}`);
-                                                                    if (priceEl) priceEl.focus();
-                                                                }
-                                                            }}
-                                                            disabled={readOnly}
-                                                            placeholder="STT"
-                                                            className={`w-16 sm:w-20 text-center font-black text-sm px-2 py-1 rounded-lg border focus:outline-none focus:ring-2 transition ${
-                                                                isDup 
-                                                                    ? 'border-red-500 bg-red-50 text-red-700 focus:ring-red-500' 
-                                                                    : 'border-gray-300 focus:ring-blue-500 text-gray-800 bg-gray-50/40 focus:bg-white'
-                                                            } ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                                                            title={isDup ? 'Cảnh báo: Trùng số thứ tự toa!' : 'Nhân viên tự nhập STT toa'}
-                                                        />
-                                                        {isDup && (
-                                                            <span className="text-[10px] text-red-600 font-extrabold mt-0.5">
-                                                                ⚠️ Trùng
-                                                            </span>
-                                                        )}
+                                            <div key={row.id} id={`row-${row.id}`} className="p-3 bg-blue-50/90 border-2 border-blue-400 rounded-2xl space-y-2 shadow-sm">
+                                                <div className="flex justify-between items-center pb-1 border-b border-blue-200">
+                                                    <span className="font-extrabold text-blue-900 text-xs">✏️ Chỉnh sửa toa</span>
+                                                    <div className="flex gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSaveEdit(row.id)}
+                                                            className="px-3 py-1 bg-blue-600 text-white font-bold text-xs rounded-lg shadow-2xs"
+                                                        >
+                                                            ✓ Lưu
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleCancelEdit}
+                                                            className="px-2.5 py-1 bg-gray-200 text-gray-700 font-bold text-xs rounded-lg"
+                                                        >
+                                                            ✕ Hủy
+                                                        </button>
                                                     </div>
-                                                </td>
-
-                                                {/* Tên bé / Bệnh nhân */}
-                                                <td className="py-1.5 px-3 align-middle">
-                                                    <input
-                                                        id={`name-input-${row.id}`}
-                                                        type="text"
-                                                        value={row.name}
-                                                        onChange={(e) => handleRowChange(row.id, 'name', e.target.value)}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    const priceEl = document.getElementById(`price-input-${row.id}`);
-                                                                    if (priceEl) priceEl.focus();
-                                                            }
-                                                        }}
-                                                        disabled={readOnly}
-                                                        placeholder="Tên bé (tùy chọn)"
-                                                        className={`w-full text-xs sm:text-sm px-3 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-                                                            readOnly ? 'bg-gray-100 cursor-not-allowed text-gray-700' : 'bg-white'
-                                                        }`}
-                                                    />
-                                                </td>
-
-                                                {/* Số tiền khám (k) - Gọn gàng, không có gợi ý giá */}
-                                                <td className="py-1.5 px-3 align-middle">
-                                                    <div className="flex items-center gap-1.5">
+                                                </div>
+                                                <div className="grid grid-cols-12 gap-2">
+                                                    <div className="col-span-4">
+                                                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">STT</label>
                                                         <input
-                                                            id={`price-input-${row.id}`}
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            value={editForm.prescriptionNo}
+                                                            onChange={(e) => setEditForm(prev => ({ ...prev, prescriptionNo: e.target.value }))}
+                                                            className="w-full text-center font-black py-1.5 px-2 text-sm border rounded-lg bg-white"
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-8">
+                                                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">Tiền khám (k)</label>
+                                                        <input
                                                             type="number"
                                                             step="any"
-                                                            value={row.price}
-                                                            onChange={(e) => handleRowChange(row.id, 'price', e.target.value)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    if (index === filteredPrescriptions.length - 1) {
-                                                                        handleAddRow();
-                                                                    } else {
-                                                                        const nextRow = filteredPrescriptions[index + 1];
-                                                                        if (nextRow) {
-                                                                            const nextSttEl = document.getElementById(`stt-input-${nextRow.id}`);
-                                                                            if (nextSttEl) nextSttEl.focus();
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }}
-                                                            disabled={readOnly}
-                                                            placeholder="0"
-                                                            className={`w-24 sm:w-28 text-right font-black text-sm sm:text-base px-2.5 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-blue-700 ${
-                                                                readOnly ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                                                            }`}
+                                                            inputMode="numeric"
+                                                            value={editForm.price}
+                                                            onChange={(e) => setEditForm(prev => ({ ...prev, price: e.target.value }))}
+                                                            className="w-full font-black py-1.5 px-2 text-sm text-right border rounded-lg bg-white text-blue-700"
                                                         />
-                                                        <span className="text-xs font-bold text-gray-500">k</span>
                                                     </div>
-                                                </td>
-
-                                                {/* Hình thức thanh toán (TM / CK) */}
-                                                <td className="py-1.5 px-2 text-center align-middle">
+                                                    <div className="col-span-12">
+                                                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">Tên bé</label>
+                                                        <input
+                                                            type="text"
+                                                            value={editForm.name}
+                                                            onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                                                            placeholder="Tên bé (tùy chọn)"
+                                                            className="w-full py-1.5 px-2 text-xs border rounded-lg bg-white"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-1.5 pt-1">
                                                     <button
                                                         type="button"
-                                                        onClick={() => !readOnly && handleTogglePayment(row.id)}
-                                                        disabled={readOnly}
-                                                        className={`w-full max-w-[105px] mx-auto px-2 py-1 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1 shadow-2xs ${
-                                                            row.paymentMethod === 'transfer'
-                                                                ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                                                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                                        } ${readOnly ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
-                                                        title="Click để đổi giữa Tiền mặt và Chuyển khoản"
+                                                        onClick={() => setEditForm(prev => ({ ...prev, paymentMethod: 'cash' }))}
+                                                        className={`py-1.5 text-xs font-bold rounded-lg border ${
+                                                            editForm.paymentMethod === 'cash' ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-800'
+                                                        }`}
                                                     >
-                                                        <span>{row.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}</span>
-                                                        <span className="hidden sm:inline">
-                                                            {row.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt'}
-                                                        </span>
+                                                        💵 Tiền mặt
                                                     </button>
-                                                </td>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditForm(prev => ({ ...prev, paymentMethod: 'transfer' }))}
+                                                        className={`py-1.5 text-xs font-bold rounded-lg border ${
+                                                            editForm.paymentMethod === 'transfer' ? 'bg-purple-600 text-white' : 'bg-white text-purple-800'
+                                                        }`}
+                                                    >
+                                                        💳 Chuyển khoản
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
 
-                                                {/* Thao tác xóa */}
+                                    return (
+                                        <div
+                                            key={row.id}
+                                            id={`row-${row.id}`}
+                                            className={`p-3 rounded-2xl border transition-all ${
+                                                isHighlighted
+                                                    ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
+                                                    : row.paymentMethod === 'transfer'
+                                                        ? 'bg-purple-50/40 border-purple-200/70'
+                                                        : 'bg-white border-gray-200'
+                                            } shadow-2xs space-y-2`}
+                                        >
+                                            {/* Hàng 1: STT badge + Tên bé + Nút sửa/xóa */}
+                                            <div className="flex items-center justify-between gap-1.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className={`inline-flex items-center justify-center min-w-[36px] px-2.5 py-1 rounded-xl font-black text-sm ${
+                                                        isDup 
+                                                            ? 'bg-red-500 text-white' 
+                                                            : 'bg-blue-600 text-white'
+                                                    }`}>
+                                                        #{row.prescriptionNo || '?'}
+                                                    </span>
+                                                    {isDup && (
+                                                        <span className="text-[10px] text-red-600 font-extrabold bg-red-100 px-1.5 py-0.5 rounded-md">
+                                                            ⚠️ Trùng
+                                                        </span>
+                                                    )}
+                                                    <span className="font-bold text-gray-800 text-sm truncate max-w-[170px]">
+                                                        {row.name ? row.name : <span className="text-gray-400 font-normal italic text-xs">Không tên</span>}
+                                                    </span>
+                                                </div>
+
                                                 {!readOnly && (
-                                                    <td className="py-1.5 px-1 text-center align-middle">
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleStartEdit(row)}
+                                                            className="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs"
+                                                            title="Sửa toa này"
+                                                        >
+                                                            ✏️
+                                                        </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveRow(row.id)}
-                                                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition text-xs mx-auto"
+                                                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded text-xs"
                                                             title="Xóa toa này"
                                                         >
                                                             ✕
                                                         </button>
-                                                    </td>
+                                                    </div>
                                                 )}
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
+                                            </div>
 
-                    {/* Bottom Action Footer */}
-                    {!readOnly && localPrescriptions.length > 0 && (
-                        <div className="flex flex-col sm:flex-row justify-between items-center gap-2.5 pt-3 mt-2 border-t border-gray-100">
-                            <span className="text-xs text-gray-500">
-                                💡 Mẹo gõ nhanh: Gõ <b>STT</b> ➔ <kbd className="px-1 py-0.5 bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold">Enter</kbd> ➔ gõ <b>Giá</b> ➔ <kbd className="px-1 py-0.5 bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold">Enter</kbd> để tạo toa kế tiếp.
-                            </span>
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => handleAddRow()}
-                                    className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-bold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm active:scale-95"
-                                >
-                                    <span>➕</span> Thêm toa khám
-                                </button>
+                                            {/* Hàng 2: Tiền khám + Nút đổi hình thức TM/CK (1 chạm) */}
+                                            <div className="flex items-center justify-between pt-1 border-t border-gray-100">
+                                                <div className="flex items-baseline gap-1">
+                                                    <span className="text-xs text-gray-400 font-medium">Tiền:</span>
+                                                    <span className="text-base font-black text-blue-800">
+                                                        {row.price !== '' ? `${Number(row.price).toLocaleString()}k` : '0k'}
+                                                    </span>
+                                                    {parseFloat(row.price || 0) > 0 && (
+                                                        <span className="text-[11px] text-gray-400">
+                                                            ({(parseFloat(row.price) * 1000).toLocaleString()}đ)
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => !readOnly && handleTogglePayment(row.id)}
+                                                    disabled={readOnly}
+                                                    className={`px-2.5 py-1 rounded-xl font-bold text-xs transition flex items-center gap-1 shadow-2xs active:scale-95 ${
+                                                        row.paymentMethod === 'transfer'
+                                                            ? 'bg-purple-600 text-white'
+                                                            : 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                                                    } ${readOnly ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                                    title="Chạm để đổi Tiền mặt / Chuyển khoản"
+                                                >
+                                                    <span>{row.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}</span>
+                                                    <span className="text-[11px]">{row.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt'}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        </div>
+
+                            {/* 2. GIAO DIỆN MÁY TÍNH / LAPTOP: DẠNG BẢNG (TABLE VIEW) SANG TRỌNG */}
+                            <div className="hidden sm:block overflow-x-auto rounded-xl border border-gray-200 shadow-2xs mt-2">
+                                <table className="w-full text-left text-xs sm:text-sm border-collapse min-w-[500px]">
+                                    <thead>
+                                        <tr className="bg-gray-100/90 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
+                                            <th className="py-2 px-2 w-20 sm:w-24 text-center">STT Toa</th>
+                                            <th className="py-2 px-3">Tên bé / Bệnh nhân</th>
+                                            <th className="py-2 px-3 w-32 sm:w-36">Tiền khám (k)</th>
+                                            <th className="py-2 px-2 w-28 text-center">Hình thức</th>
+                                            {!readOnly && <th className="py-2 px-1 w-12 text-center">Thao tác</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 bg-white">
+                                        {filteredPrescriptions.map((row) => {
+                                            const sttStr = String(row.prescriptionNo || '').trim();
+                                            const isDup = sttStr !== '' && duplicateSttSet.has(sttStr);
+                                            const isHighlighted = highlightedRowId === row.id;
+
+                                            return (
+                                                <tr 
+                                                    key={row.id} 
+                                                    id={`row-${row.id}`}
+                                                    className={`transition-colors duration-150 ${
+                                                        isHighlighted 
+                                                            ? 'bg-amber-100/80 ring-2 ring-amber-400' 
+                                                            : row.paymentMethod === 'transfer' 
+                                                                ? 'hover:bg-purple-50/40' 
+                                                                : 'hover:bg-blue-50/40'
+                                                    }`}
+                                                >
+                                                    {/* STT Toa */}
+                                                    <td className="py-1.5 px-2 text-center align-middle">
+                                                        <div className="flex flex-col items-center">
+                                                            <input
+                                                                id={`stt-input-${row.id}`}
+                                                                type="text"
+                                                                value={row.prescriptionNo}
+                                                                onChange={(e) => handleRowChange(row.id, 'prescriptionNo', e.target.value)}
+                                                                disabled={readOnly}
+                                                                placeholder="STT"
+                                                                className={`w-16 sm:w-20 text-center font-black text-sm px-2 py-1 rounded-lg border focus:outline-none focus:ring-2 transition ${
+                                                                    isDup 
+                                                                        ? 'border-red-500 bg-red-50 text-red-700 focus:ring-red-500' 
+                                                                        : 'border-gray-300 focus:ring-blue-500 text-gray-800 bg-gray-50/40 focus:bg-white'
+                                                                } ${readOnly ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                                                                title={isDup ? 'Cảnh báo: Trùng số thứ tự toa!' : 'Nhân viên tự nhập STT toa'}
+                                                            />
+                                                            {isDup && (
+                                                                <span className="text-[10px] text-red-600 font-extrabold mt-0.5">
+                                                                    ⚠️ Trùng
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Tên bé / Bệnh nhân */}
+                                                    <td className="py-1.5 px-3 align-middle">
+                                                        <input
+                                                            id={`name-input-${row.id}`}
+                                                            type="text"
+                                                            value={row.name}
+                                                            onChange={(e) => handleRowChange(row.id, 'name', e.target.value)}
+                                                            disabled={readOnly}
+                                                            placeholder="Tên bé (tùy chọn)"
+                                                            className={`w-full text-xs sm:text-sm px-3 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+                                                                readOnly ? 'bg-gray-100 cursor-not-allowed text-gray-700' : 'bg-white'
+                                                            }`}
+                                                        />
+                                                    </td>
+
+                                                    {/* Số tiền khám (k) */}
+                                                    <td className="py-1.5 px-3 align-middle">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <input
+                                                                id={`price-input-${row.id}`}
+                                                                type="number"
+                                                                step="any"
+                                                                value={row.price}
+                                                                onChange={(e) => handleRowChange(row.id, 'price', e.target.value)}
+                                                                disabled={readOnly}
+                                                                placeholder="0"
+                                                                className={`w-24 sm:w-28 text-right font-black text-sm sm:text-base px-2.5 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-blue-700 ${
+                                                                    readOnly ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                                                                }`}
+                                                            />
+                                                            <span className="text-xs font-bold text-gray-500">k</span>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Hình thức thanh toán (TM / CK) */}
+                                                    <td className="py-1.5 px-2 text-center align-middle">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => !readOnly && handleTogglePayment(row.id)}
+                                                            disabled={readOnly}
+                                                            className={`w-full max-w-[110px] mx-auto px-2 py-1 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1 shadow-2xs ${
+                                                                row.paymentMethod === 'transfer'
+                                                                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                                                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                                            } ${readOnly ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                                            title="Click để đổi giữa Tiền mặt và Chuyển khoản"
+                                                        >
+                                                            <span>{row.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}</span>
+                                                            <span className="hidden sm:inline">
+                                                                {row.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt'}
+                                                            </span>
+                                                        </button>
+                                                    </td>
+
+                                                    {/* Thao tác xóa */}
+                                                    {!readOnly && (
+                                                        <td className="py-1.5 px-1 text-center align-middle">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveRow(row.id)}
+                                                                className="text-gray-400 hover:text-red-600 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition text-xs mx-auto"
+                                                                title="Xóa toa này"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
                     )}
 
                     {/* Sequence Checker Modal */}
@@ -3588,7 +3921,8 @@
             );
         }
 
-        // Doctor Fees Component
+
+                // Doctor Fees Component
         function DoctorFeesSection({ doctorFees, onChange, readOnly = false }) {
             const addDoctorFee = () => {
                 onChange([...doctorFees, { doctor: '', amount: '' }]);

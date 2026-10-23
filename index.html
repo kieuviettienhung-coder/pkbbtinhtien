@@ -2932,7 +2932,7 @@
             );
         }
 
-// Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập toa ở trên, lưu xuống danh sách phía dưới)
+        // Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập toa ở trên, lưu xuống danh sách phía dưới)
         function ExaminationSection({ 
             examinations = {}, 
             patientDetails = {}, 
@@ -2953,6 +2953,9 @@
                 }
                 return convertOldDataToPrescriptions(examinations, patientDetails);
             });
+
+            // Trạng thái bật/tắt form nhập toa mới (mặc định ẩn, nhấn nút mới hiện)
+            const [isAddingNew, setIsAddingNew] = useState(false);
 
             // State form nhập toa mới ở trên cùng
             const [newStt, setNewStt] = useState('');
@@ -3029,24 +3032,16 @@
                 const updated = [newRow, ...localPrescriptions];
                 commitPrescriptions(updated);
 
-                // Xóa trắng form để nhập tiếp toa sau
+                // Reset form nhập và đóng lại form
                 setNewStt('');
                 setNewPrice('');
                 setNewName('');
                 setNewPaymentMethod('cash');
+                setIsAddingNew(false);
 
                 // Hiệu ứng highlight toa vừa lưu
                 setHighlightedRowId(newRow.id);
                 setTimeout(() => setHighlightedRowId(null), 2500);
-
-                // Tự động focus lại ô STT
-                setTimeout(() => {
-                    const el = document.getElementById('new-rx-stt-input');
-                    if (el) {
-                        el.focus();
-                        el.select && el.select();
-                    }
-                }, 50);
             };
 
             // Bắt đầu sửa 1 toa trong danh sách
@@ -3130,8 +3125,9 @@
                 }
             };
 
-            // Hỗ trợ thêm toa thiếu từ modal kiểm tra số nhảy
+            // Mở form thêm toa mới
             const handleAddRow = (customStt = null) => {
+                setIsAddingNew(true);
                 if (customStt !== null) {
                     setNewStt(customStt.toString());
                     setTimeout(() => {
@@ -3304,33 +3300,32 @@
                             </button>
                         </div>
 
-                        {stats.maxStt > 0 && (
-                            <div className="text-xs text-gray-500 font-semibold">
-                                Toa lớn nhất: <span className="font-bold text-gray-800">#{stats.maxStt}</span>
+                        {!readOnly && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddRow()}
+                                    className={`px-3.5 py-1.5 rounded-xl font-extrabold text-xs sm:text-sm transition flex items-center gap-1.5 shadow-sm active:scale-95 ${
+                                        isAddingNew
+                                            ? 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300'
+                                            : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white'
+                                    }`}
+                                >
+                                    <span>{isAddingNew ? '✕' : '➕'}</span>
+                                    <span>{isAddingNew ? 'Đóng form' : 'Thêm toa khám'}</span>
+                                </button>
                             </div>
                         )}
                     </div>
 
-                    {/* FORM NHẬP TOA MỚI Ở TRÊN CÙNG (DÀNH RIÊNG TỐI ƯU CHO ĐIỆN THOẠI & MÁY TÍNH) */}
-                    {!readOnly && (
-                        <div className="mt-3 bg-gradient-to-br from-blue-50/90 via-indigo-50/70 to-purple-50/60 rounded-2xl p-3 sm:p-4 border-2 border-blue-200/90 shadow-sm">
-                            <div className="flex items-center justify-between mb-2">
-                                <h3 className="text-xs sm:text-sm font-extrabold text-blue-900 flex items-center gap-1.5 uppercase tracking-wide">
-                                    <span>➕</span> Nhập toa khám mới
-                                </h3>
-                                <span className="text-[11px] text-blue-700 font-semibold hidden sm:inline">
-                                    💡 Gõ xong nhấn Enter hoặc bấm "Lưu toa"
-                                </span>
-                            </div>
-
+                    {/* FORM NHẬP TOA MỚI (CHỈ HIỂN THỊ KHI NHẤN NÚT) */}
+                    {!readOnly && isAddingNew && (
+                        <div className="mt-3 bg-gradient-to-br from-blue-50/95 via-indigo-50/70 to-purple-50/60 rounded-2xl p-2.5 sm:p-3.5 border-2 border-blue-300 shadow-sm animate-fadeIn">
                             <form onSubmit={handleSaveNewPrescription} className="space-y-2">
-                                {/* Dòng nhập: STT, Tiền khám và Tên bé */}
-                                <div className="grid grid-cols-12 gap-2">
-                                    {/* Số toa */}
-                                    <div className="col-span-4 sm:col-span-3">
-                                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                                            Số toa <span className="text-red-500">*</span>
-                                        </label>
+                                {/* DÒNG 1: SỐ TT TOA, TÊN BÉ, SỐ TIỀN TRÊN CÙNG 1 DÒNG */}
+                                <div className="flex items-center gap-1.5 w-full">
+                                    {/* 1. Số TT toa */}
+                                    <div className="w-16 sm:w-20 shrink-0">
                                         <input
                                             id="new-rx-stt-input"
                                             type="text"
@@ -3340,57 +3335,22 @@
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
                                                     e.preventDefault();
-                                                    const priceEl = document.getElementById('new-rx-price-input');
-                                                    if (priceEl) priceEl.focus();
+                                                    const nameEl = document.getElementById('new-rx-name-input');
+                                                    if (nameEl) nameEl.focus();
                                                 }
                                             }}
-                                            placeholder={stats.maxStt > 0 ? `${stats.maxStt + 1}` : "STT"}
-                                            className={`w-full text-center font-black text-base sm:text-lg py-2 px-2 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${
+                                            placeholder="STT"
+                                            className={`w-full text-center font-black text-sm sm:text-base py-2 px-1 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${
                                                 isNewSttDup 
                                                     ? 'border-red-400 ring-2 ring-red-300 text-red-700' 
                                                     : 'border-gray-300 focus:ring-blue-500 text-gray-900'
                                             }`}
+                                            title="Số thứ tự toa"
                                         />
-                                        {isNewSttDup && (
-                                            <p className="text-[10px] text-red-600 font-bold mt-0.5 text-center leading-tight">
-                                                ⚠️ Đã có #{newStt.trim()}
-                                            </p>
-                                        )}
                                     </div>
 
-                                    {/* Tiền khám */}
-                                    <div className="col-span-8 sm:col-span-4">
-                                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                                            Tiền khám (k) <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="relative">
-                                            <input
-                                                id="new-rx-price-input"
-                                                type="number"
-                                                step="any"
-                                                inputMode="numeric"
-                                                value={newPrice}
-                                                onChange={(e) => setNewPrice(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        handleSaveNewPrescription();
-                                                    }
-                                                }}
-                                                placeholder="Ví dụ: 70, 80, 100"
-                                                className="w-full text-right font-black text-base sm:text-lg py-2 pr-7 pl-3 rounded-xl border border-gray-300 bg-white text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                                            />
-                                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
-                                                k
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Tên bé / Bệnh nhân */}
-                                    <div className="col-span-12 sm:col-span-5">
-                                        <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                                            Tên bé / Bệnh nhân <span className="text-gray-400 font-normal">(tùy chọn)</span>
-                                        </label>
+                                    {/* 2. Tên bé */}
+                                    <div className="flex-1 min-w-0">
                                         <input
                                             id="new-rx-name-input"
                                             type="text"
@@ -3399,39 +3359,70 @@
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
                                                     e.preventDefault();
+                                                    const priceEl = document.getElementById('new-rx-price-input');
+                                                    if (priceEl) priceEl.focus();
+                                                }
+                                            }}
+                                            placeholder="Tên bé (tùy chọn)"
+                                            className="w-full text-xs sm:text-sm py-2 px-2.5 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                        />
+                                    </div>
+
+                                    {/* 3. Số tiền (k) */}
+                                    <div className="w-24 sm:w-28 shrink-0 relative">
+                                        <input
+                                            id="new-rx-price-input"
+                                            type="number"
+                                            step="any"
+                                            inputMode="numeric"
+                                            value={newPrice}
+                                            onChange={(e) => setNewPrice(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
                                                     handleSaveNewPrescription();
                                                 }
                                             }}
-                                            placeholder="Tên bé..."
-                                            className="w-full text-sm py-2 px-3 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                            placeholder="Tiền k"
+                                            className="w-full text-right font-black text-sm sm:text-base py-2 pr-6 pl-2 rounded-xl border border-gray-300 bg-white text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                                         />
+                                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
+                                            k
+                                        </span>
                                     </div>
                                 </div>
 
-                                {/* Dòng chọn hình thức thanh toán & Nút Lưu */}
-                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-                                    {/* 2 nút chọn TM / CK to, dễ bấm trên màn hình điện thoại */}
-                                    <div className="grid grid-cols-2 gap-2 flex-1">
+                                {isNewSttDup && (
+                                    <p className="text-[11px] text-red-600 font-bold px-1">
+                                        ⚠️ Cảnh báo: Đã có toa số #{newStt.trim()} trong ngày!
+                                    </p>
+                                )}
+
+                                {/* DÒNG 2: TIỀN MẶT/CK, LƯU TOA TRÊN CÙNG 1 DÒNG */}
+                                <div className="flex items-center gap-1.5 w-full pt-0.5">
+                                    {/* 2 nút chọn Tiền mặt / Chuyển khoản */}
+                                    <div className="flex items-center gap-1 flex-1">
                                         <button
                                             type="button"
                                             onClick={() => setNewPaymentMethod('cash')}
-                                            className={`py-2 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition border-2 ${
+                                            className={`flex-1 py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition border-2 ${
                                                 newPaymentMethod === 'cash'
-                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                                                    : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                                    : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50'
                                             }`}
                                         >
                                             <span>💵</span>
                                             <span>Tiền mặt</span>
                                             {newPaymentMethod === 'cash' && <span>✓</span>}
                                         </button>
+
                                         <button
                                             type="button"
                                             onClick={() => setNewPaymentMethod('transfer')}
-                                            className={`py-2 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition border-2 ${
+                                            className={`flex-1 py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition border-2 ${
                                                 newPaymentMethod === 'transfer'
-                                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
-                                                    : 'bg-white text-purple-800 border-purple-200 hover:bg-purple-50'
+                                                    ? 'bg-purple-600 text-white border-purple-600 shadow-2xs'
+                                                    : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-50'
                                             }`}
                                         >
                                             <span>💳</span>
@@ -3440,14 +3431,28 @@
                                         </button>
                                     </div>
 
-                                    {/* Nút LƯU TOA to, bấm ngón tay cái rất êm */}
+                                    {/* Nút Lưu toa */}
                                     <button
                                         type="submit"
-                                        className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-98 text-white rounded-xl font-extrabold text-sm sm:text-base transition shadow-md flex items-center justify-center gap-1.5"
+                                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 shrink-0"
                                     >
                                         <span>💾</span>
-                                        <span>Lưu toa khám</span>
-                                        <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded font-bold">↵</span>
+                                        <span>Lưu toa</span>
+                                    </button>
+
+                                    {/* Nút Đóng form */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsAddingNew(false);
+                                            setNewStt('');
+                                            setNewPrice('');
+                                            setNewName('');
+                                        }}
+                                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-xl transition text-xs shrink-0"
+                                        title="Đóng form nhập"
+                                    >
+                                        ✕
                                     </button>
                                 </div>
                             </form>
@@ -3477,6 +3482,12 @@
                                 <span className="text-xs text-purple-600 font-semibold">({stats.transferCases} toa)</span>
                             </div>
                         </div>
+
+                        {stats.maxStt > 0 && (
+                            <div className="text-xs text-gray-500 font-semibold">
+                                Số toa lớn nhất: <span className="font-bold text-gray-800">#{stats.maxStt}</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Collapsible Price Breakdown */}
@@ -3584,8 +3595,19 @@
                                 Chưa có toa khám nào trong ngày {selectedDate}
                             </h3>
                             <p className="text-xs text-gray-500 mt-0.5 max-w-md mx-auto">
-                                Hãy nhập số toa và tiền khám ở khung phía trên, sau đó bấm <b>Lưu toa khám</b>.
+                                Bấm nút bên dưới để mở form nhập toa khám.
                             </p>
+                            {!readOnly && (
+                                <div className="mt-3.5 flex justify-center gap-2 flex-wrap">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddRow()}
+                                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold text-xs sm:text-sm transition shadow-sm flex items-center gap-1.5"
+                                    >
+                                        <span>➕</span> Thêm toa khám
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ) : filteredPrescriptions.length === 0 ? (
                         <div className="text-center py-6 text-xs text-gray-400 italic">
@@ -3922,7 +3944,7 @@
         }
 
 
-                // Doctor Fees Component
+                        // Doctor Fees Component
         function DoctorFeesSection({ doctorFees, onChange, readOnly = false }) {
             const addDoctorFee = () => {
                 onChange([...doctorFees, { doctor: '', amount: '' }]);

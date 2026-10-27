@@ -329,6 +329,7 @@
             const [user, setUser] = useState(null);
             const [userRole, setUserRole] = useState(null); // 'admin' or 'staff'
             const [allowedBranch, setAllowedBranch] = useState(null); // 'nga-bay', 'thot-not', or 'all'
+            const isMasterAdmin = userRole === 'admin' && allowedBranch === 'all';
             const [currentView, setCurrentView] = useState('input');
             const [selectedBranch, setSelectedBranch] = useState('nga-bay');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -392,6 +393,14 @@
                     console.warn('Session restore error:', e);
                 }
             }, []);
+
+            // Chỉ tài khoản admin tổng mới được truy cập giao diện quản lý thuốc
+            useEffect(() => {
+                if (currentView === 'medicine' && !isMasterAdmin) {
+                    setCurrentView('input');
+                }
+            }, [currentView, isMasterAdmin]);
+
             const [medicineList, setMedicineList] = useState([
                 { name: 'adkold new', price: 30 },
                 { name: 'air x cam', price: 50 },
@@ -554,8 +563,8 @@
             };
 
             const managePasswords = async () => {
-                if (userRole !== 'admin') {
-                    alert('❌ Chỉ Admin mới có quyền quản lý tài khoản!');
+                if (!isMasterAdmin) {
+                    alert('❌ Chỉ tài khoản Admin tổng mới có quyền quản lý tài khoản!');
                     return;
                 }
 
@@ -1111,21 +1120,21 @@
                             </div>
                             <div className="flex gap-2">
                                 {userRole === 'admin' && (
-                                    <>
-                                        <button
-                                            onClick={sendTelegramReport}
-                                            className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition font-semibold"
-                                        >
-                                            📨 Gửi TG
-                                        </button>
-                                        <button
-                                            onClick={managePasswords}
-                                            className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition font-semibold"
-                                        >
-                                            👥 Quản lý tài khoản
-                                        </button>
-                                    </>
-                                )}}
+                                    <button
+                                        onClick={sendTelegramReport}
+                                        className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition font-semibold"
+                                    >
+                                        📨 Gửi TG
+                                    </button>
+                                )}
+                                {isMasterAdmin && (
+                                    <button
+                                        onClick={managePasswords}
+                                        className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition font-semibold"
+                                    >
+                                        👥 Quản lý tài khoản
+                                    </button>
+                                )}
                                 <button
                                     onClick={handleLogout}
                                     className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition font-semibold"
@@ -1175,16 +1184,18 @@
                                     >
                                         📅 Báo cáo năm
                                     </button>
-                                    <button
-                                        onClick={() => setCurrentView('medicine')}
-                                        className={`px-4 py-2 rounded-lg font-semibold transition ${
-                                            currentView === 'medicine'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                        }`}
-                                    >
-                                        ⚙️ Quản lý thuốc
-                                    </button>
+                                    {isMasterAdmin && (
+                                        <button
+                                            onClick={() => setCurrentView('medicine')}
+                                            className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                                currentView === 'medicine'
+                                                    ? 'bg-blue-600 text-white'
+                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                            }`}
+                                        >
+                                            ⚙️ Quản lý thuốc
+                                        </button>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -1470,7 +1481,7 @@
                         />
                     )}
 
-                    {currentView === 'medicine' && userRole === 'admin' && (
+                    {currentView === 'medicine' && isMasterAdmin && (
                         <MedicineManagement 
                             medicineList={medicineList}
                             setMedicineList={setMedicineList}

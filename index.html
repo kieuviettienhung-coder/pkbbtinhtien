@@ -46,10 +46,42 @@
             min-width: 44px;
             touch-action: manipulation;
         }
+
+        /* Thermal Printer Styling */
+        @media screen {
+            #thermal-print-portal {
+                display: none !important;
+            }
+        }
+        
+        @media print {
+            body {
+                background: #fff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            #root {
+                display: none !important;
+            }
+            #thermal-print-portal {
+                display: block !important;
+                position: static !important;
+                width: 100% !important;
+                margin: 0 auto !important;
+                padding: 0 !important;
+                background: #fff !important;
+                color: #000 !important;
+            }
+            @page {
+                size: auto;
+                margin: 0mm 3mm;
+            }
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
     <div id="root"></div>
+    <div id="thermal-print-portal"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
@@ -2943,6 +2975,230 @@
             );
         }
 
+        // Helper: Sinh nội dung HTML cho máy in nhiệt (K80 / K58)
+        function generateThermalBillHtml({
+            prescriptionNo = '',
+            name = '',
+            price = '',
+            paymentMethod = 'cash',
+            branch = 'nga-bay',
+            date = '',
+            time = '',
+            note = '',
+            paperSize = '80mm'
+        }) {
+            const branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
+            const is58 = paperSize === '58mm';
+            const maxWidth = is58 ? '52mm' : '72mm';
+            const fontSize = is58 ? '11px' : '13px';
+            const titleSize = is58 ? '14px' : '16px';
+            const totalSize = is58 ? '14px' : '16px';
+            
+            const priceNum = parseFloat(price || 0);
+            const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
+            const paymentMethodText = paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt';
+            
+            const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
+            const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+            return `
+                <div style="width: 100%; max-width: ${maxWidth}; margin: 0 auto; padding: 2mm 1mm; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: ${fontSize}; line-height: 1.35; color: #000; background: #fff;">
+                    <!-- Header Phòng khám -->
+                    <div style="text-align: center; margin-bottom: 5px;">
+                        <div style="font-weight: 900; font-size: ${titleSize}; text-transform: uppercase;">Phòng Khám Bách Bảo</div>
+                        <div style="font-size: ${is58 ? '10px' : '12px'}; font-weight: 600; margin-top: 2px;">${branchName}</div>
+                        <div style="margin: 5px 0; border-top: 1px dashed #000;"></div>
+                        <div style="font-weight: 800; font-size: ${is58 ? '12px' : '14px'}; text-transform: uppercase;">PHIẾU THANH TOÁN</div>
+                    </div>
+
+                    <!-- Thông tin toa & thời gian -->
+                    <div style="margin-bottom: 5px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+                            <span>Ngày: <b>${dateFormatted}</b></span>
+                            <span>Giờ: <b>${timeFormatted}</b></span>
+                        </div>
+                        <div style="margin-bottom: 2px;">
+                            <span>Toa số: </span>
+                            <span style="font-weight: 900; font-size: ${is58 ? '13px' : '15px'};">#${prescriptionNo || '---'}</span>
+                        </div>
+                        <div style="margin-bottom: 2px;">
+                            <span>Bệnh nhân: </span>
+                            <span style="font-weight: 700;">${name && name.trim() ? name.trim() : 'Khách hàng'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Bảng nội dung thu tiền -->
+                    <div style="border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0; margin-bottom: 5px;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 3px; font-size: ${is58 ? '10px' : '11px'}; text-transform: uppercase;">
+                            <span>Nội dung</span>
+                            <span>Thành tiền</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Khám bệnh & Thuốc</span>
+                            <span style="font-weight: 700;">${amountStr}</span>
+                        </div>
+                    </div>
+
+                    <!-- Tổng cộng & Hình thức thanh toán -->
+                    <div style="margin-bottom: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px;">
+                            <span style="font-weight: 800; font-size: ${totalSize};">TỔNG CỘNG:</span>
+                            <span style="font-weight: 900; font-size: ${totalSize};">${amountStr}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: ${fontSize};">
+                            <span>Hình thức:</span>
+                            <span style="font-weight: 700;">${paymentMethodText}</span>
+                        </div>
+                    </div>
+
+                    ${note && note.trim() ? `
+                        <div style="border-top: 1px dotted #888; padding-top: 4px; margin-bottom: 5px; font-size: 11px; font-style: italic;">
+                            <b>Lời dặn:</b> ${note.trim()}
+                        </div>
+                    ` : ''}
+
+                    <!-- Lời cảm ơn & Chúc bé khỏe -->
+                    <div style="border-top: 1px dashed #000; padding-top: 5px; text-align: center; font-size: ${is58 ? '10px' : '11px'};">
+                        <div style="font-weight: 700; margin-bottom: 2px;">❤️ Chúc bé mau khỏe! ❤️</div>
+                        <div style="color: #444;">Cảm ơn Quý khách & Hẹn gặp lại!</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Modal xem trước và in bill cho máy in nhiệt
+        function BillPrintModal({ bill, onClose }) {
+            const [paperSize, setPaperSize] = useState('80mm');
+            const [note, setNote] = useState('');
+            const [timeString] = useState(() => {
+                const now = new Date();
+                return now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            });
+
+            if (!bill) return null;
+
+            const handleExecutePrint = () => {
+                const printPortal = document.getElementById('thermal-print-portal');
+                if (printPortal) {
+                    printPortal.innerHTML = generateThermalBillHtml({
+                        prescriptionNo: bill.prescriptionNo,
+                        name: bill.name,
+                        price: bill.price,
+                        paymentMethod: bill.paymentMethod,
+                        branch: bill.branch,
+                        date: bill.date,
+                        time: timeString,
+                        note: note,
+                        paperSize: paperSize
+                    });
+                }
+                window.print();
+            };
+
+            const billHtml = generateThermalBillHtml({
+                prescriptionNo: bill.prescriptionNo,
+                name: bill.name,
+                price: bill.price,
+                paymentMethod: bill.paymentMethod,
+                branch: bill.branch,
+                date: bill.date,
+                time: timeString,
+                note: note,
+                paperSize: paperSize
+            });
+
+            return (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 overflow-y-auto">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 animate-fadeIn my-auto">
+                        {/* Header modal */}
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-3.5 px-4 flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl">🖨️</span>
+                                <h3 className="font-extrabold text-sm sm:text-base tracking-tight">In Bill Tính Tiền Toa Thuốc</h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition text-sm font-bold"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Tùy chọn khổ giấy & Ghi chú */}
+                        <div className="p-3.5 bg-gray-50 border-b border-gray-200 space-y-2.5">
+                            {/* Chọn khổ giấy */}
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-gray-700">Khổ giấy in nhiệt:</span>
+                                <div className="flex bg-gray-200 p-0.5 rounded-lg text-xs font-bold">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaperSize('80mm')}
+                                        className={`px-3 py-1 rounded-md transition ${
+                                            paperSize === '80mm'
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'text-gray-700 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        K80 (80mm)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaperSize('58mm')}
+                                        className={`px-3 py-1 rounded-md transition ${
+                                            paperSize === '58mm'
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'text-gray-700 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        K58 (58mm)
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Ghi chú / Lời dặn */}
+                            <div>
+                                <input
+                                    type="text"
+                                    value={note}
+                                    onChange={(e) => setNote(e.target.value)}
+                                    placeholder="Lời dặn bác sĩ / Ghi chú thêm (tùy chọn)..."
+                                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Xem trước mẫu bill */}
+                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[50vh] overflow-y-auto">
+                            <div 
+                                className="bg-white p-3.5 shadow-md border border-gray-200 rounded-sm"
+                                dangerouslySetInnerHTML={{ __html: billHtml }}
+                            />
+                        </div>
+
+                        {/* Nút bấm hành động */}
+                        <div className="p-3.5 bg-white border-t border-gray-200 flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="flex-1 sm:flex-none px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs sm:text-sm rounded-xl transition"
+                            >
+                                Đóng
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExecutePrint}
+                                className="flex-1 sm:flex-none px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
+                            >
+                                <span>🖨️</span>
+                                <span>Bấm In Bill</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         // Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập toa ở trên, lưu xuống danh sách phía dưới)
         function ExaminationSection({ 
             examinations = {}, 
@@ -2984,6 +3240,7 @@
             const [showSequenceModal, setShowSequenceModal] = useState(false);
             const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
             const [highlightedRowId, setHighlightedRowId] = useState(null);
+            const [billToPrint, setBillToPrint] = useState(null);
 
             // Đồng bộ dữ liệu mỗi khi props thay đổi từ Firebase
             useEffect(() => {
@@ -3011,9 +3268,9 @@
                 if (onPatientDetailsChange) onPatientDetailsChange(newDetails);
             };
 
-            // Lưu toa mới từ form phía trên xuống danh sách phía dưới
-            const handleSaveNewPrescription = (e) => {
-                if (e) e.preventDefault();
+            // Lưu toa mới từ form phía trên xuống danh sách phía dưới (tùy chọn mở in bill ngay)
+            const handleSaveNewPrescription = (e, shouldPrint = false) => {
+                if (e && e.preventDefault) e.preventDefault();
                 const trimmedStt = String(newStt || '').trim();
                 const trimmedPrice = String(newPrice || '').trim();
 
@@ -3053,6 +3310,18 @@
                 // Hiệu ứng highlight toa vừa lưu
                 setHighlightedRowId(newRow.id);
                 setTimeout(() => setHighlightedRowId(null), 2500);
+
+                // Mở giao diện in bill nếu chọn Lưu & In
+                if (shouldPrint) {
+                    setBillToPrint({
+                        prescriptionNo: newRow.prescriptionNo,
+                        name: newRow.name,
+                        price: newRow.price,
+                        paymentMethod: newRow.paymentMethod,
+                        branch: selectedBranch,
+                        date: selectedDate
+                    });
+                }
             };
 
             // Bắt đầu sửa 1 toa trong danh sách
@@ -3444,11 +3713,24 @@
 
                                     {/* Nút Lưu toa */}
                                     <button
-                                        type="submit"
-                                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 shrink-0"
+                                        type="button"
+                                        onClick={(e) => handleSaveNewPrescription(e, false)}
+                                        className="px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 shrink-0"
+                                        title="Lưu toa"
                                     >
                                         <span>💾</span>
-                                        <span>Lưu toa</span>
+                                        <span>Lưu</span>
+                                    </button>
+
+                                    {/* Nút Lưu & In bill */}
+                                    <button
+                                        type="button"
+                                        onClick={(e) => handleSaveNewPrescription(e, true)}
+                                        className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 shrink-0"
+                                        title="Lưu toa và mở in bill ngay"
+                                    >
+                                        <span>🖨️</span>
+                                        <span>Lưu & In</span>
                                     </button>
 
                                     {/* Nút Đóng form */}
@@ -3745,26 +4027,43 @@
                                                     </span>
                                                 </div>
 
-                                                {!readOnly && (
-                                                    <div className="flex items-center gap-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleStartEdit(row)}
-                                                            className="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs"
-                                                            title="Sửa toa này"
-                                                        >
-                                                            ✏️
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRemoveRow(row.id)}
-                                                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded text-xs"
-                                                            title="Xóa toa này"
-                                                        >
-                                                            ✕
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setBillToPrint({
+                                                            prescriptionNo: row.prescriptionNo,
+                                                            name: row.name,
+                                                            price: row.price,
+                                                            paymentMethod: row.paymentMethod,
+                                                            branch: selectedBranch,
+                                                            date: selectedDate
+                                                        })}
+                                                        className="p-1 text-emerald-600 hover:bg-emerald-50 rounded text-xs"
+                                                        title="In bill toa này"
+                                                    >
+                                                        🖨️
+                                                    </button>
+                                                    {!readOnly && (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleStartEdit(row)}
+                                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs"
+                                                                title="Sửa toa này"
+                                                            >
+                                                                ✏️
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveRow(row.id)}
+                                                                className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded text-xs"
+                                                                title="Xóa toa này"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
 
                                             {/* Hàng 2: Tiền khám + Nút đổi hình thức TM/CK (1 chạm) */}
@@ -3810,7 +4109,7 @@
                                             <th className="py-2 px-3">Tên bé / Bệnh nhân</th>
                                             <th className="py-2 px-3 w-32 sm:w-36">Tiền khám (k)</th>
                                             <th className="py-2 px-2 w-28 text-center">Hình thức</th>
-                                            {!readOnly && <th className="py-2 px-1 w-12 text-center">Thao tác</th>}
+                                            <th className="py-2 px-1 w-16 text-center">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
@@ -3910,19 +4209,36 @@
                                                         </button>
                                                     </td>
 
-                                                    {/* Thao tác xóa */}
-                                                    {!readOnly && (
-                                                        <td className="py-1.5 px-1 text-center align-middle">
+                                                    {/* Thao tác (In / Xóa) */}
+                                                    <td className="py-1.5 px-1 text-center align-middle">
+                                                        <div className="flex items-center justify-center gap-1">
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleRemoveRow(row.id)}
-                                                                className="text-gray-400 hover:text-red-600 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition text-xs mx-auto"
-                                                                title="Xóa toa này"
+                                                                onClick={() => setBillToPrint({
+                                                                    prescriptionNo: row.prescriptionNo,
+                                                                    name: row.name,
+                                                                    price: row.price,
+                                                                    paymentMethod: row.paymentMethod,
+                                                                    branch: selectedBranch,
+                                                                    date: selectedDate
+                                                                })}
+                                                                className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 w-7 h-7 rounded-lg flex items-center justify-center transition text-xs"
+                                                                title="In bill toa này"
                                                             >
-                                                                ✕
+                                                                🖨️
                                                             </button>
-                                                        </td>
-                                                    )}
+                                                            {!readOnly && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRemoveRow(row.id)}
+                                                                    className="text-gray-400 hover:text-red-600 hover:bg-red-50 w-7 h-7 rounded-lg flex items-center justify-center transition text-xs"
+                                                                    title="Xóa toa này"
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
@@ -3948,6 +4264,14 @@
                                 handleJumpToPrescription(stt);
                             }}
                             readOnly={readOnly}
+                        />
+                    )}
+
+                    {/* Bill Print Modal */}
+                    {billToPrint && (
+                        <BillPrintModal 
+                            bill={billToPrint}
+                            onClose={() => setBillToPrint(null)}
                         />
                     )}
                 </div>

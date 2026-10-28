@@ -3022,12 +3022,12 @@
         }) {
             const branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
             const is58 = paperSize === '58mm';
-            const billWidth = exactPixelWidth ? `${exactPixelWidth}px` : (is58 ? '360px' : '480px');
+            const billWidth = exactPixelWidth ? `${exactPixelWidth}px` : (is58 ? '400px' : '540px');
             
-            // Cân chỉnh size chữ to rõ ràng, đậm đà cho máy in nhiệt
-            const fontSize = is58 ? '15px' : '18px';
-            const titleSize = is58 ? '22px' : '26px';
-            const totalSize = is58 ? '22px' : '26px';
+            // Cân chỉnh size chữ to hơn 1.5 lần theo yêu cầu
+            const fontSize = is58 ? '22px' : '26px';
+            const titleSize = is58 ? '32px' : '38px';
+            const totalSize = is58 ? '32px' : '38px';
             
             const priceNum = parseFloat(price || 0);
             const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
@@ -3036,52 +3036,52 @@
             const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-            // Lề dưới 200px (~2.5cm) khi in ảnh: Trục cuốn máy in sẽ tự động đẩy toàn bộ nội dung bill ra khỏi khe cắt giấy
-            const bottomPadding = exactPixelWidth ? '200px' : '50px';
+            // Lề dưới 240px (~3cm) khi in ảnh để trục cuốn máy in đẩy toàn bộ bill ra ngoài khe cắt giấy
+            const bottomPadding = exactPixelWidth ? '240px' : '60px';
 
             return `
-                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 10px 14px ${bottomPadding} 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.4; color: #000000; background: #ffffff; box-sizing: border-box;">
+                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 12px 14px ${bottomPadding} 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.4; color: #000000; background: #ffffff; box-sizing: border-box;">
                     <!-- Header Phòng khám -->
-                    <div style="text-align: center; margin-bottom: 8px;">
+                    <div style="text-align: center; margin-bottom: 10px;">
                         <div style="font-weight: 900; font-size: ${titleSize}; letter-spacing: -0.5px; text-transform: uppercase;">Phòng Khám Bách Bảo</div>
-                        <div style="font-size: ${is58 ? '14px' : '17px'}; font-weight: 700; margin-top: 3px;">${branchName}</div>
-                        <div style="font-size: ${is58 ? '14px' : '16px'}; font-weight: 700; margin-top: 2px;">📞 Hotline: 0939 994 992</div>
-                        <div style="margin: 8px 0; border-top: 2px dashed #000000;"></div>
-                        <div style="font-weight: 900; font-size: ${is58 ? '18px' : '22px'}; text-transform: uppercase; letter-spacing: 0.5px;">PHIẾU THANH TOÁN</div>
+                        <div style="font-size: ${is58 ? '21px' : '25px'}; font-weight: 700; margin-top: 4px;">${branchName}</div>
+                        <div style="font-size: ${is58 ? '20px' : '24px'}; font-weight: 700; margin-top: 3px;">📞 Hotline: 0939 994 992</div>
+                        <div style="margin: 10px 0; border-top: 3px dashed #000000;"></div>
+                        <div style="font-weight: 900; font-size: ${is58 ? '26px' : '33px'}; text-transform: uppercase; letter-spacing: 0.5px;">PHIẾU THANH TOÁN</div>
                     </div>
 
                     <!-- Thông tin toa & thời gian -->
-                    <div style="margin-bottom: 8px;">
-                        <div style="display: flex; justify-content: space-between; font-size: ${is58 ? '14px' : '16px'}; margin-bottom: 5px;">
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; font-size: ${is58 ? '20px' : '24px'}; margin-bottom: 6px;">
                             <span>Ngày: <b>${dateFormatted}</b></span>
                             <span>Giờ: <b>${timeFormatted}</b></span>
                         </div>
                         <!-- STT toa và tên bé nằm liền kề ngay sau dấu hai chấm -->
-                        <div style="margin-bottom: 5px; font-size: ${is58 ? '16px' : '19px'};">
+                        <div style="margin-bottom: 6px; font-size: ${is58 ? '24px' : '28px'};">
                             <span>Toa số: </span>
-                            <span style="font-weight: 900; font-size: ${is58 ? '20px' : '24px'};">#${prescriptionNo || '---'}</span>
+                            <span style="font-weight: 900; font-size: ${is58 ? '30px' : '36px'};">#${prescriptionNo || '---'}</span>
                         </div>
-                        <div style="margin-bottom: 5px; font-size: ${is58 ? '16px' : '19px'};">
+                        <div style="margin-bottom: 6px; font-size: ${is58 ? '24px' : '28px'};">
                             <span>Bé: </span>
-                            <span style="font-weight: 800; font-size: ${is58 ? '18px' : '22px'}; text-transform: uppercase;">${name && name.trim() ? name.trim() : '---'}</span>
+                            <span style="font-weight: 800; font-size: ${is58 ? '27px' : '33px'}; text-transform: uppercase;">${name && name.trim() ? name.trim() : '---'}</span>
                         </div>
                     </div>
 
                     <!-- Bảng nội dung thu tiền -->
-                    <div style="border-top: 2px dashed #000000; border-bottom: 2px dashed #000000; padding: 6px 0; margin-bottom: 8px;">
-                        <div style="display: flex; justify-content: space-between; font-weight: 800; margin-bottom: 4px; font-size: ${is58 ? '14px' : '16px'}; text-transform: uppercase;">
+                    <div style="border-top: 3px dashed #000000; border-bottom: 3px dashed #000000; padding: 8px 0; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 800; margin-bottom: 6px; font-size: ${is58 ? '20px' : '24px'}; text-transform: uppercase;">
                             <span>Nội dung</span>
                             <span>Thành tiền</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: ${is58 ? '16px' : '19px'};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: ${is58 ? '24px' : '28px'};">
                             <span>Khám bệnh & Thuốc</span>
                             <span style="font-weight: 800;">${amountStr}</span>
                         </div>
                     </div>
 
                     <!-- Tổng cộng & Hình thức thanh toán -->
-                    <div style="margin-bottom: 8px;">
-                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px;">
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
                             <span style="font-weight: 900; font-size: ${totalSize};">TỔNG CỘNG:</span>
                             <span style="font-weight: 900; font-size: ${totalSize};">${amountStr}</span>
                         </div>
@@ -3092,16 +3092,16 @@
                     </div>
 
                     ${note && note.trim() ? `
-                        <div style="border-top: 1px dashed #000000; padding-top: 6px; margin-bottom: 8px; font-size: ${is58 ? '14px' : '17px'};">
+                        <div style="border-top: 2px dashed #000000; padding-top: 8px; margin-bottom: 10px; font-size: ${is58 ? '20px' : '25px'};">
                             <b>Lời dặn:</b> ${note.trim()}
                         </div>
                     ` : ''}
 
                     <!-- Lời cảm ơn & Chúc bé khỏe -->
-                    <div style="border-top: 2px dashed #000000; padding-top: 8px; text-align: center; font-size: ${is58 ? '14px' : '16px'};">
-                        <div style="font-weight: 900; font-size: ${is58 ? '16px' : '19px'}; margin-bottom: 4px;">❤️ Chúc bé mau khỏe! ❤️</div>
-                        <div style="font-weight: 700; font-style: italic; font-size: ${is58 ? '12px' : '14px'}; margin-bottom: 4px;">(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)</div>
-                        <div style="font-weight: 900; color: #000000; font-size: ${is58 ? '15px' : '18px'};">Cảm ơn Quý khách & Hẹn gặp lại!</div>
+                    <div style="border-top: 3px dashed #000000; padding-top: 10px; text-align: center; font-size: ${is58 ? '20px' : '24px'};">
+                        <div style="font-weight: 900; font-size: ${is58 ? '24px' : '28px'}; margin-bottom: 6px;">❤️ Chúc bé mau khỏe! ❤️</div>
+                        <div style="font-weight: 700; font-style: italic; font-size: ${is58 ? '18px' : '21px'}; margin-bottom: 6px;">(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)</div>
+                        <div style="font-weight: 900; color: #000000; font-size: ${is58 ? '22px' : '27px'};">Cảm ơn Quý khách & Hẹn gặp lại!</div>
                     </div>
                 </div>
             `;
@@ -3465,7 +3465,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 overflow-y-auto">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 animate-fadeIn my-auto">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 animate-fadeIn my-auto">
                         {/* Header modal */}
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-3.5 px-4 flex justify-between items-center">
                             <div className="flex items-center gap-2">

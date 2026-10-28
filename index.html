@@ -3145,7 +3145,8 @@
 
             let branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
             const priceNum = parseFloat(price || 0);
-            const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
+            const currencyUnit = noAccent ? ' d' : ' đ';
+            const amountStr = priceNum === 0 ? ('0' + currencyUnit) : ((priceNum * 1000).toLocaleString('vi-VN') + currencyUnit);
             let paymentMethodText = paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt';
             const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -3290,7 +3291,7 @@
             };
 
             const [copied, setCopied] = useState(false);
-            const [noAccent, setNoAccent] = useState(false);
+            const [noAccent, setNoAccent] = useState(true);
 
             const handleRawBTPrint = () => {
                 recordPrintLog();

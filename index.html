@@ -3099,23 +3099,7 @@
 
             if (!bill) return null;
 
-            const handleExecutePrint = () => {
-                const printPortal = document.getElementById('thermal-print-portal');
-                if (printPortal) {
-                    printPortal.innerHTML = generateThermalBillHtml({
-                        prescriptionNo: bill.prescriptionNo,
-                        name: bill.name,
-                        price: bill.price,
-                        paymentMethod: bill.paymentMethod,
-                        branch: bill.branch,
-                        date: bill.date,
-                        time: timeString,
-                        note: note,
-                        paperSize: paperSize
-                    });
-                }
-
-                // Ghi log lượt in bill vào Firebase để Admin tổng hợp và giám sát các bill in nhiều lần
+            const recordPrintLog = () => {
                 try {
                     const branchKey = bill.branch || 'nga-bay';
                     const rawDate = bill.date || new Date().toISOString().split('T')[0];
@@ -3142,8 +3126,54 @@
                 } catch (logErr) {
                     console.error('Lỗi ghi log in bill:', logErr);
                 }
+            };
 
+            const handleExecutePrint = () => {
+                const printPortal = document.getElementById('thermal-print-portal');
+                if (printPortal) {
+                    printPortal.innerHTML = generateThermalBillHtml({
+                        prescriptionNo: bill.prescriptionNo,
+                        name: bill.name,
+                        price: bill.price,
+                        paymentMethod: bill.paymentMethod,
+                        branch: bill.branch,
+                        date: bill.date,
+                        time: timeString,
+                        note: note,
+                        paperSize: paperSize
+                    });
+                }
+
+                recordPrintLog();
                 window.print();
+            };
+
+            const handleRawBTPrint = () => {
+                recordPrintLog();
+
+                const billHtmlContent = generateThermalBillHtml({
+                    prescriptionNo: bill.prescriptionNo,
+                    name: bill.name,
+                    price: bill.price,
+                    paymentMethod: bill.paymentMethod,
+                    branch: bill.branch,
+                    date: bill.date,
+                    time: timeString,
+                    note: note,
+                    paperSize: paperSize
+                });
+
+                const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Bill PKBB</title><style>body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#000;background:#fff;}</style></head><body>${billHtmlContent}</body></html>`;
+
+                try {
+                    const base64Html = btoa(unescape(encodeURIComponent(fullHtml)));
+                    const playStoreUrl = encodeURIComponent("https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter");
+                    const intentUrl = `intent:data:text/html;base64,${base64Html}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=${playStoreUrl};end;`;
+                    window.location.href = intentUrl;
+                } catch (e) {
+                    console.error('Lỗi mã hóa Base64 cho RawBT:', e);
+                    window.print();
+                }
             };
 
             const billHtml = generateThermalBillHtml({
@@ -3220,7 +3250,7 @@
                         </div>
 
                         {/* Xem trước mẫu bill */}
-                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[50vh] overflow-y-auto">
+                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[45vh] overflow-y-auto">
                             <div 
                                 className="bg-white p-3.5 shadow-md border border-gray-200 rounded-sm"
                                 dangerouslySetInnerHTML={{ __html: billHtml }}
@@ -3228,22 +3258,37 @@
                         </div>
 
                         {/* Nút bấm hành động */}
-                        <div className="p-3.5 bg-white border-t border-gray-200 flex gap-2 justify-end">
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="flex-1 sm:flex-none px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs sm:text-sm rounded-xl transition"
-                            >
-                                Đóng
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleExecutePrint}
-                                className="flex-1 sm:flex-none px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
-                            >
-                                <span>🖨️</span>
-                                <span>Bấm In Bill</span>
-                            </button>
+                        <div className="p-3.5 bg-white border-t border-gray-200 space-y-2.5">
+                            <div className="flex gap-2 justify-end">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs sm:text-sm rounded-xl transition"
+                                >
+                                    Đóng
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleExecutePrint}
+                                    className="flex-1 sm:flex-none px-3.5 py-2.5 bg-gray-700 hover:bg-gray-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow transition flex items-center justify-center gap-1.5"
+                                    title="In qua hộp thoại in của trình duyệt / PC"
+                                >
+                                    <span>🖨️</span>
+                                    <span>In thường (PC)</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleRawBTPrint}
+                                    className="flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
+                                    title="In siêu tốc 1 giây qua app RawBT cho điện thoại Android"
+                                >
+                                    <span>⚡</span>
+                                    <span>In siêu tốc (Android)</span>
+                                </button>
+                            </div>
+                            <div className="text-[11px] text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed">
+                                <span className="font-bold text-amber-800">💡 Mẹo cho ĐT Android:</span> Nếu in thường bị chậm hoặc máy in giật cục, hãy cài app miễn phí <span className="font-bold text-blue-600">RawBT</span> trên CH Play (kết nối IP <span className="font-mono font-bold text-indigo-700">192.168.23.21:9100</span>) rồi bấm <b>⚡ In siêu tốc (Android)</b> để máy in chạy trong 1 giây!
+                            </div>
                         </div>
                     </div>
                 </div>

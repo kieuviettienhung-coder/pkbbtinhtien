@@ -90,7 +90,21 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 - **Thống kê thanh toán:** Hiển thị số lượng toa `💵 TM` và `💳 CK` trực quan ngay trong thẻ thông kê đầu modal, badge nổi bật trên từng dòng bệnh nhân.
 - Nút bấm chuyển trực tiếp sang modal mức giá tương ứng để chỉnh sửa nhanh.
 
-### `Thiết kế Giao diện Tiền mặt (TM) & Chuyển khoản (CK)`
+### `BillPrintModal` (In Bill Tính Tiền Máy In Nhiệt & Tối ưu Android)
+- **Hỗ trợ máy in nhiệt (Xprinter, POS-80, POS-58):**
+  - Tùy chọn khổ giấy in: `K80 (80mm)` và `K58 (58mm)`.
+  - Ô nhập nhanh lời dặn bác sĩ / ghi chú thêm.
+  - Tích hợp hotline phòng khám `0939 994 992` và lời nhắc thanh toán đúng tiền bill.
+  - Tự động ghi nhật ký in vào Firebase (`printLogs_v2/{branch}/{dateKey}`) để Admin theo dõi bill in nhiều lần.
+- **Tối ưu hóa in siêu tốc cho điện thoại Android:**
+  - **In thường (PC):** Sử dụng `window.print()` chuẩn trình duyệt cho Laptop / PC / iPhone AirPrint.
+  - **In siêu tốc (Android / RawBT):** Sử dụng giao thức Android Intent (`ru.a402d.rawbtprinter`) bắn trực tiếp HTML mã hóa Base64 sang app RawBT.
+  - Giải quyết triệt để vấn đề Android Print Service mặc định chuyển hóa bill thành file ảnh bitmap khổng lồ gây nghẽn buffer làm máy in giật cục, cho phép máy in Xprinter chạy ra bill ngay trong 1 giây.
+
+### `PrintSummaryReportView` (Báo cáo & Giám sát Bill In Trong Ngày cho Admin)
+- Bảng tổng hợp toàn bộ lượt in bill nhiệt trong ngày của chi nhánh.
+- Hiển thị tổng số lượt in, tổng số toa khác nhau đã in, và **cảnh báo nổi bật các toa bị in nhiều lần** (in lại / in trùng).
+- Thống kê chi tiết từng lượt in: giờ in, tên bé, số toa, mức giá, hình thức thanh toán, ghi chú, khổ giấy.
 - Định dạng huy hiệu (Badges) nổi bật, chữ to rõ, tương phản cao trên toàn hệ thống:
   - `💵 Tiền mặt (TM)`: Tông xanh lá (Emerald) viền rõ ràng.
   - `💳 Chuyển khoản (CK)`: Tông tím (Purple) viền rõ ràng.

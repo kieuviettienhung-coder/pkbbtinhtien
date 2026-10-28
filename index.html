@@ -3115,6 +3115,16 @@
             return left + ' '.repeat(spaces) + right;
         }
 
+        // Helper loại bỏ dấu tiếng Việt để chống lỗi font trên các máy in không hỗ trợ Unicode
+        function removeVietnameseTones(str) {
+            if (!str) return '';
+            return String(str)
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/đ/g, 'd')
+                .replace(/Đ/g, 'D');
+        }
+
         // Helper: Sinh nội dung dạng Text thuần túy cho app RawBT (nhận dạng tức thì, in trong 1 giây)
         function generateThermalBillText({
             prescriptionNo = '',
@@ -3125,54 +3135,92 @@
             date = '',
             time = '',
             note = '',
-            paperSize = '80mm'
+            paperSize = '80mm',
+            noAccent = false
         }) {
             const is58 = paperSize === '58mm';
             const width = is58 ? 32 : 40;
             const divider = '='.repeat(width);
             const dashed = '-'.repeat(width);
 
-            const branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
+            let branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
             const priceNum = parseFloat(price || 0);
             const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
-            const paymentMethodText = paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt';
+            let paymentMethodText = paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt';
             const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
+            let pName = name && name.trim() ? name.trim() : '---';
+            let pNote = note && note.trim() ? note.trim() : '';
+
+            let titleClinic = 'PHÒNG KHÁM BÁCH BẢO';
+            let titleReceipt = 'PHIẾU THANH TOÁN';
+            let titleExam = 'Khám bệnh & Thuốc';
+            let titleTotal = 'TỔNG CỘNG:';
+            let titleMethod = 'Hình thức:';
+            let titleWish = '❤️ Chúc bé mau khỏe! ❤️';
+            let titleNotice1 = '(Quý khách lưu ý chỉ thanh toán đúng bill)';
+            let titleNotice58_1 = '(Lưu ý: chỉ thanh toán';
+            let titleNotice58_2 = 'đúng số tiền trong bill)';
+            let titleThanks = 'Cảm ơn Quý khách & Hẹn gặp lại!';
+
+            if (noAccent) {
+                branchName = removeVietnameseTones(branchName);
+                paymentMethodText = removeVietnameseTones(paymentMethodText);
+                pName = removeVietnameseTones(pName);
+                pNote = removeVietnameseTones(pNote);
+                titleClinic = removeVietnameseTones(titleClinic);
+                titleReceipt = removeVietnameseTones(titleReceipt);
+                titleExam = removeVietnameseTones(titleExam);
+                titleTotal = removeVietnameseTones(titleTotal);
+                titleMethod = removeVietnameseTones(titleMethod);
+                titleWish = '*** CHUC BE MAU KHOE! ***';
+                titleNotice1 = '(Quy khach luu y chi thanh toan dung bill)';
+                titleNotice58_1 = '(Luu y: chi thanh toan';
+                titleNotice58_2 = 'dung so tien trong bill)';
+                titleThanks = removeVietnameseTones(titleThanks);
+            }
+
             let lines = [];
+            lines.push(''); // Dòng trống đầu
             lines.push(divider);
-            lines.push(centerTextForReceipt('PHÒNG KHÁM BÁCH BẢO', width));
+            lines.push(centerTextForReceipt(titleClinic, width));
             lines.push(centerTextForReceipt(branchName, width));
             lines.push(centerTextForReceipt('Hotline: 0939 994 992', width));
             lines.push(dashed);
-            lines.push(centerTextForReceipt('PHIẾU THANH TOÁN', width));
+            lines.push('');
+            lines.push(centerTextForReceipt(titleReceipt, width));
+            lines.push('');
             lines.push(dashed);
-            lines.push(rowTwoColForReceipt('Ngày: ' + dateFormatted, 'Giờ: ' + timeFormatted, width));
-            lines.push('Toa số: #' + (prescriptionNo || '---'));
-            lines.push('Bé: ' + (name && name.trim() ? name.trim() : '---'));
+            lines.push(rowTwoColForReceipt(noAccent ? 'Ngay: ' + dateFormatted : 'Ngày: ' + dateFormatted, (noAccent ? 'Gio: ' : 'Giờ: ') + timeFormatted, width));
+            lines.push((noAccent ? 'Toa so: #' : 'Toa số: #') + (prescriptionNo || '---'));
+            lines.push((noAccent ? 'Be: ' : 'Bé: ') + pName);
             lines.push(dashed);
-            lines.push(rowTwoColForReceipt('Nội dung', 'Thành tiền', width));
-            lines.push(rowTwoColForReceipt('Khám bệnh & Thuốc', amountStr, width));
+            lines.push(rowTwoColForReceipt(noAccent ? 'Noi dung' : 'Nội dung', noAccent ? 'Thanh tien' : 'Thành tiền', width));
+            lines.push(rowTwoColForReceipt(titleExam, amountStr, width));
             lines.push(dashed);
-            lines.push(rowTwoColForReceipt('TỔNG CỘNG:', amountStr, width));
-            lines.push(rowTwoColForReceipt('Hình thức:', paymentMethodText, width));
+            lines.push(rowTwoColForReceipt(titleTotal, amountStr, width));
+            lines.push(rowTwoColForReceipt(titleMethod, paymentMethodText, width));
 
-            if (note && note.trim()) {
+            if (pNote) {
                 lines.push(dashed);
-                lines.push('Lời dặn: ' + note.trim());
+                lines.push((noAccent ? 'Loi dan: ' : 'Lời dặn: ') + pNote);
             }
 
             lines.push(dashed);
-            lines.push(centerTextForReceipt('❤️ Chúc bé mau khỏe! ❤️', width));
+            lines.push('');
+            lines.push(centerTextForReceipt(titleWish, width));
             if (is58) {
-                lines.push(centerTextForReceipt('(Lưu ý: chỉ thanh toán', width));
-                lines.push(centerTextForReceipt('đúng số tiền trong bill)', width));
+                lines.push(centerTextForReceipt(titleNotice58_1, width));
+                lines.push(centerTextForReceipt(titleNotice58_2, width));
             } else {
-                lines.push(centerTextForReceipt('(Quý khách lưu ý chỉ thanh toán đúng bill)', width));
+                lines.push(centerTextForReceipt(titleNotice1, width));
             }
-            lines.push(centerTextForReceipt('Cảm ơn Quý khách & Hẹn gặp lại!', width));
+            lines.push(centerTextForReceipt(titleThanks, width));
+            lines.push('');
             lines.push(divider);
-            lines.push('\n\n\n'); // Đẩy giấy qua dao cắt
+            // 8 dòng trống cuối đẩy giấy hoàn toàn qua dao cắt máy in, không bao giờ bị cắt cụt bill
+            lines.push('\n\n\n\n\n\n\n\n');
 
             return lines.join('\n');
         }
@@ -3242,6 +3290,7 @@
             };
 
             const [copied, setCopied] = useState(false);
+            const [noAccent, setNoAccent] = useState(false);
 
             const handleRawBTPrint = () => {
                 recordPrintLog();
@@ -3255,7 +3304,8 @@
                     date: bill.date,
                     time: timeString,
                     note: note,
-                    paperSize: paperSize
+                    paperSize: paperSize,
+                    noAccent: noAccent
                 });
 
                 try {
@@ -3279,7 +3329,8 @@
                     date: bill.date,
                     time: timeString,
                     note: note,
-                    paperSize: paperSize
+                    paperSize: paperSize,
+                    noAccent: noAccent
                 });
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(billText).then(() => {
@@ -3360,10 +3411,28 @@
                                     className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                             </div>
+
+                            {/* Tùy chọn Tiếng Việt không dấu */}
+                            <div className="pt-0.5">
+                                <label className="flex items-center justify-between gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer hover:bg-blue-50/50 transition select-none">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={noAccent}
+                                            onChange={(e) => setNoAccent(e.target.checked)}
+                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+                                        />
+                                        <span className="text-xs font-bold text-gray-700">In Tiếng Việt không dấu</span>
+                                    </div>
+                                    <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-medium">
+                                        Chống lỗi font máy in
+                                    </span>
+                                </label>
+                            </div>
                         </div>
 
                         {/* Xem trước mẫu bill */}
-                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[45vh] overflow-y-auto">
+                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[42vh] overflow-y-auto">
                             <div 
                                 className="bg-white p-3.5 shadow-md border border-gray-200 rounded-sm"
                                 dangerouslySetInnerHTML={{ __html: billHtml }}
@@ -3412,8 +3481,16 @@
                                     <span>In siêu tốc (RawBT)</span>
                                 </button>
                             </div>
-                            <div className="text-[11px] text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed">
-                                <span className="font-bold text-amber-800">💡 Hướng dẫn RawBT:</span> Khi bấm <b>⚡ In siêu tốc (RawBT)</b>, nội dung bill sẽ hiện đầy đủ trong app RawBT ➡️ chỉ cần chạm biểu tượng <span className="font-bold">Máy in</span> ở góc app là bill phóng ra ngay lập tức trong 1 giây!
+                            <div className="text-[11px] text-gray-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 leading-relaxed space-y-1">
+                                <div className="font-bold text-amber-900 flex items-center gap-1">
+                                    <span>💡</span>
+                                    <span>Mẹo khắc phục Lỗi tiếng Việt & Chiều dài bill:</span>
+                                </div>
+                                <div className="text-gray-600 pl-4 space-y-0.5">
+                                    <div>• <b>Cách 1 (In có dấu cực đẹp):</b> Mở app <b>RawBT</b> ➡️ <b>Cài đặt (Settings)</b> ➡️ <b>Phương thức in (Print method)</b> ➡️ chọn <b>Đồ họa (Graphics)</b>.</div>
+                                    <div>• <b>Cách 2:</b> Bật tùy chọn <b>"In Tiếng Việt không dấu"</b> ở trên để in sạch đẹp 100% không bao giờ bị lỗi dấu.</div>
+                                    <div>• Chiều dài tờ bill đã được thêm khoảng cách và dòng đẩy giấy qua dao cắt máy in.</div>
+                                </div>
                             </div>
                         </div>
                     </div>

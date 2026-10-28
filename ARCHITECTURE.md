@@ -99,6 +99,8 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 - **Tối ưu hóa in siêu tốc cho điện thoại Android:**
   - **In thường (PC):** Sử dụng `window.print()` chuẩn trình duyệt cho Laptop / PC / iPhone AirPrint.
   - **In siêu tốc (Android / RawBT):** Sử dụng giao thức Android Intent (`ru.a402d.rawbtprinter`) bắn trực tiếp chuỗi văn bản biên lai đã định dạng (plain text receipt) sang app RawBT. Hỗ trợ căn giữa, phân cột, nét đứt, hotline, số toa và lời dặn hoàn hảo cho cả khổ K80 và K58.
+  - Tích hợp tùy chọn **"In Tiếng Việt không dấu"** (`noAccent`) giúp chống lỗi font trên các máy in nhiệt Xprinter chưa cấu hình chế độ Đồ họa (Graphics mode).
+  - Tự động bổ sung 8 dòng đệm trắng ở cuối bill giúp giấy đẩy hoàn toàn qua dao cắt tự động, tránh hiện tượng cắt cụt chữ.
   - Tích hợp nút **📋 Sao chép text bill** giúp sao chép nội dung nhanh vào bộ nhớ tạm.
   - Giải quyết triệt để vấn đề Android Print Service mặc định chuyển hóa bill thành file ảnh bitmap khổng lồ gây nghẽn buffer làm máy in giật cục, cho phép máy in Xprinter chạy ra bill ngay trong 1 giây.
 

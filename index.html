@@ -3034,11 +3034,11 @@
             const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-            // Lề dưới 200px (~2.5cm) khi in ảnh để đẩy giấy hoàn toàn qua dao cắt máy in
-            const bottomPadding = exactPixelWidth ? '200px' : '90px';
+            // Lề dưới 80px (~1.0cm) gọn gàng, đẩy vừa đủ qua dao cắt, tránh bill quá dài gây tràn buffer máy in
+            const bottomPadding = exactPixelWidth ? '80px' : '50px';
 
             return `
-                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 12px 14px ${bottomPadding} 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.4; color: #000000; background: #ffffff; box-sizing: border-box;">
+                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 10px 12px ${bottomPadding} 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.35; color: #000000; background: #ffffff; box-sizing: border-box;">
                     <!-- Header Phòng khám -->
                     <div style="text-align: center; margin-bottom: 8px;">
                         <div style="font-weight: 900; font-size: ${titleSize}; letter-spacing: -0.5px; text-transform: uppercase;">Phòng Khám Bách Bảo</div>
@@ -3312,10 +3312,11 @@
                         const targetWidth = is58 ? 384 : 576; // Chuẩn 384 dots (K58) hoặc 576 dots (K80)
 
                         // Tạo container tạm thời chuyên dụng gắn trực tiếp vào document.body
+                        // Dùng position: absolute (không dùng fixed để tránh bị mobile Chrome giới hạn theo viewport)
                         // Vị trí (0, 0), z-index: -9999 (nằm dưới nền giao diện, hoàn toàn vô hình với người dùng)
                         // Không bị giới hạn max-height, overflow: visible, đảm bảo lấy trọn vẹn 100% chiều cao tờ bill
                         captureWrapper = document.createElement('div');
-                        captureWrapper.style.position = 'fixed';
+                        captureWrapper.style.position = 'absolute';
                         captureWrapper.style.top = '0px';
                         captureWrapper.style.left = '0px';
                         captureWrapper.style.width = targetWidth + 'px';
@@ -3348,7 +3349,18 @@
                         // Chờ 60ms để trình duyệt layout đầy đủ font chữ & chiều cao
                         await new Promise(r => setTimeout(r, 60));
 
-                        const fullHeight = Math.ceil(captureWrapper.scrollHeight || captureWrapper.offsetHeight || 700);
+                        const innerBill = captureWrapper.firstElementChild || captureWrapper;
+                        const fullHeight = Math.ceil(Math.max(
+                            innerBill.scrollHeight,
+                            innerBill.offsetHeight,
+                            innerBill.getBoundingClientRect().height,
+                            450
+                        ));
+
+                        // Lưu tọa độ cuộn trước khi chụp và tạm đưa về (0,0) để tránh lỗi offset trên mobile Chrome
+                        const prevScrollX = window.scrollX || window.pageXOffset || 0;
+                        const prevScrollY = window.scrollY || window.pageYOffset || 0;
+                        window.scrollTo(0, 0);
 
                         // Chụp toàn bộ chiều cao tờ bill với scale 1 (khớp 1:1 điểm in nhiệt, chống tràn buffer máy in)
                         const canvas = await window.html2canvas(captureWrapper, {
@@ -3360,9 +3372,14 @@
                             useCORS: true,
                             scrollY: 0,
                             scrollX: 0,
+                            x: 0,
+                            y: 0,
                             windowWidth: targetWidth,
                             windowHeight: fullHeight
                         });
+
+                        // Phục hồi lại vị trí cuộn cho người dùng
+                        window.scrollTo(prevScrollX, prevScrollY);
 
                         const dataUrl = canvas.toDataURL('image/png');
                         setIsCapturing(false);
@@ -3579,11 +3596,12 @@
                             <div className="text-[11px] text-gray-700 bg-emerald-50/80 border border-emerald-200 rounded-lg p-2.5 leading-relaxed space-y-1">
                                 <div className="font-bold text-emerald-900 flex items-center gap-1">
                                     <span>✨</span>
-                                    <span>In Tiếng Việt CÓ DẤU 100% & ĐẦY ĐỦ CHIỀU DÀI:</span>
+                                    <span>Lưu ý để in bill chuẩn đẹp & đủ chiều dài:</span>
                                 </div>
                                 <div className="text-gray-600 pl-4 space-y-0.5">
-                                    <div>• Nút <b>⚡ In Có Dấu (RawBT)</b>: Tự động chụp tờ bill thành ảnh sắc nét gửi sang RawBT. Máy in Xprinter in ra <b>chữ đậm có dấu 100%, bảng biểu đẹp mắt và không bao giờ bị lỗi font</b>!</div>
-                                    <div>• Chiều dài tờ bill đã được tự động thêm 2.5cm lề dưới, đảm bảo dao cắt máy in không bao giờ chém mất chữ.</div>
+                                    <div>• Nút <b>⚡ In Có Dấu (RawBT)</b>: Tự động chụp tờ bill thành ảnh sắc nét có dấu 100%, gửi qua app RawBT. Đã tối ưu độ cao gọn gàng, in trọn vẹn từ đầu đến cuối không bị đứt quãng.</div>
+                                    <div>• <b>Chọn đúng khổ giấy</b>: Nếu máy in của anh là máy nhỏ khổ 58mm, vui lòng chọn nút <b>K58 (58mm)</b> ở trên để máy in không bị quá tải bộ nhớ. Nếu là máy in khổ lớn thì chọn <b>K80 (80mm)</b>.</div>
+                                    <div>• Hoặc bấm nút <b>🖨️ In thường (Có dấu)</b> để in trực tiếp qua hộp thoại in của điện thoại Android.</div>
                                 </div>
                             </div>
                         </div>

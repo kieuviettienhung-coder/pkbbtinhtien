@@ -3034,8 +3034,8 @@
             const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
-            // Lề dưới 80px (~1.0cm) gọn gàng, đẩy vừa đủ qua dao cắt, tránh bill quá dài gây tràn buffer máy in
-            const bottomPadding = exactPixelWidth ? '80px' : '50px';
+            // Lề dưới 200px (~2.5cm) khi in ảnh: Trục cuốn máy in sẽ tự động đẩy toàn bộ nội dung bill ra khỏi khe cắt giấy
+            const bottomPadding = exactPixelWidth ? '200px' : '50px';
 
             return `
                 <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 10px 12px ${bottomPadding} 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.35; color: #000000; background: #ffffff; box-sizing: border-box;">

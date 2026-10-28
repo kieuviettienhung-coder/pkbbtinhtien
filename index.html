@@ -3017,11 +3017,12 @@
             date = '',
             time = '',
             note = '',
-            paperSize = '80mm'
+            paperSize = '80mm',
+            exactPixelWidth = null
         }) {
             const branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
             const is58 = paperSize === '58mm';
-            const billWidth = is58 ? '360px' : '480px';
+            const billWidth = exactPixelWidth ? `${exactPixelWidth}px` : (is58 ? '360px' : '480px');
             const fontSize = is58 ? '13px' : '15px';
             const titleSize = is58 ? '19px' : '22px';
             const totalSize = is58 ? '19px' : '23px';
@@ -3033,8 +3034,11 @@
             const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
+            // Lề dưới 200px (~2.5cm) khi in ảnh để đẩy giấy hoàn toàn qua dao cắt máy in
+            const bottomPadding = exactPixelWidth ? '200px' : '90px';
+
             return `
-                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 12px 14px 90px 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.4; color: #000000; background: #ffffff; box-sizing: border-box;">
+                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 12px 14px ${bottomPadding} 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.4; color: #000000; background: #ffffff; box-sizing: border-box;">
                     <!-- Header Phòng khám -->
                     <div style="text-align: center; margin-bottom: 8px;">
                         <div style="font-weight: 900; font-size: ${titleSize}; letter-spacing: -0.5px; text-transform: uppercase;">Phòng Khám Bách Bảo</div>
@@ -3298,32 +3302,85 @@
             const handleRawBTPrint = async () => {
                 recordPrintLog();
 
-                // 1. Khi in CÓ DẤU: Tự động dùng html2canvas chụp bill thành ảnh PNG sắc nét gửi sang RawBT
+                // 1. Khi in CÓ DẤU: Tạo phần tử chuyên dụng chuẩn kích thước máy in, chụp ảnh toàn bộ chiều cao 100% không bị cắt cụt
                 if (!noAccent && window.html2canvas) {
-                    const targetNode = document.getElementById('thermal-bill-capture-target');
-                    if (targetNode) {
-                        try {
-                            setIsCapturing(true);
-                            const canvas = await window.html2canvas(targetNode, {
-                                scale: 1.5,
-                                backgroundColor: '#ffffff',
-                                logging: false,
-                                useCORS: true
-                            });
-                            const dataUrl = canvas.toDataURL('image/png');
-                            setIsCapturing(false);
+                    let captureWrapper = null;
+                    try {
+                        setIsCapturing(true);
 
-                            // Bắn ảnh có dấu trực tiếp sang app RawBT
-                            const rawbtUrl = "rawbt:" + dataUrl;
-                            const link = document.createElement('a');
-                            link.href = rawbtUrl;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            return;
-                        } catch (err) {
-                            console.error('Lỗi tạo ảnh bill:', err);
-                            setIsCapturing(false);
+                        const is58 = paperSize === '58mm';
+                        const targetWidth = is58 ? 384 : 576; // Chuẩn 384 dots (K58) hoặc 576 dots (K80)
+
+                        // Tạo container tạm thời chuyên dụng gắn trực tiếp vào document.body
+                        // Vị trí (0, 0), z-index: -9999 (nằm dưới nền giao diện, hoàn toàn vô hình với người dùng)
+                        // Không bị giới hạn max-height, overflow: visible, đảm bảo lấy trọn vẹn 100% chiều cao tờ bill
+                        captureWrapper = document.createElement('div');
+                        captureWrapper.style.position = 'fixed';
+                        captureWrapper.style.top = '0px';
+                        captureWrapper.style.left = '0px';
+                        captureWrapper.style.width = targetWidth + 'px';
+                        captureWrapper.style.maxWidth = targetWidth + 'px';
+                        captureWrapper.style.minWidth = targetWidth + 'px';
+                        captureWrapper.style.height = 'auto';
+                        captureWrapper.style.maxHeight = 'none';
+                        captureWrapper.style.overflow = 'visible';
+                        captureWrapper.style.background = '#ffffff';
+                        captureWrapper.style.color = '#000000';
+                        captureWrapper.style.zIndex = '-9999';
+                        captureWrapper.style.opacity = '1';
+                        captureWrapper.style.pointerEvents = 'none';
+
+                        captureWrapper.innerHTML = generateThermalBillHtml({
+                            prescriptionNo: bill.prescriptionNo,
+                            name: bill.name,
+                            price: bill.price,
+                            paymentMethod: bill.paymentMethod,
+                            branch: bill.branch,
+                            date: bill.date,
+                            time: timeString,
+                            note: note,
+                            paperSize: paperSize,
+                            exactPixelWidth: targetWidth
+                        });
+
+                        document.body.appendChild(captureWrapper);
+
+                        // Chờ 60ms để trình duyệt layout đầy đủ font chữ & chiều cao
+                        await new Promise(r => setTimeout(r, 60));
+
+                        const fullHeight = Math.ceil(captureWrapper.scrollHeight || captureWrapper.offsetHeight || 700);
+
+                        // Chụp toàn bộ chiều cao tờ bill với scale 1 (khớp 1:1 điểm in nhiệt, chống tràn buffer máy in)
+                        const canvas = await window.html2canvas(captureWrapper, {
+                            scale: 1,
+                            width: targetWidth,
+                            height: fullHeight,
+                            backgroundColor: '#ffffff',
+                            logging: false,
+                            useCORS: true,
+                            scrollY: 0,
+                            scrollX: 0,
+                            windowWidth: targetWidth,
+                            windowHeight: fullHeight
+                        });
+
+                        const dataUrl = canvas.toDataURL('image/png');
+                        setIsCapturing(false);
+
+                        // Bắn ảnh có dấu đầy đủ 100% sang app RawBT
+                        const rawbtUrl = "rawbt:" + dataUrl;
+                        const link = document.createElement('a');
+                        link.href = rawbtUrl;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        return;
+                    } catch (err) {
+                        console.error('Lỗi tạo ảnh bill:', err);
+                        setIsCapturing(false);
+                    } finally {
+                        if (captureWrapper && captureWrapper.parentNode) {
+                            captureWrapper.parentNode.removeChild(captureWrapper);
                         }
                     }
                 }
@@ -3469,7 +3526,7 @@
                         <div className="p-4 bg-gray-100/80 flex justify-center max-h-[44vh] overflow-y-auto">
                             <div className="bg-white shadow-md border border-gray-200 rounded-sm overflow-hidden inline-block">
                                 <div 
-                                    id="thermal-bill-capture-target"
+                                    id="thermal-bill-preview"
                                     style={{ background: '#ffffff', color: '#000000', display: 'inline-block' }}
                                     dangerouslySetInnerHTML={{ __html: billHtml }}
                                 />

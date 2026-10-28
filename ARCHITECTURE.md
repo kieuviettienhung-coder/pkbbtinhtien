@@ -34,6 +34,10 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - Node lưu dữ liệu thu chi hàng ngày của chi nhánh. 
   - Gồm: `examinations` (số lượng ca mỗi mức giá), `patientDetails` (danh sách tên bé và STT toa theo mức giá), `doctorFees`, `expenses`, `medicines`.
 
+- `printLogs_v2/{branch}/{dateKey}` (VD: `printLogs_v2/nga-bay/20261028`)
+  - Node lưu toàn bộ lịch sử các lần bấm in bill nhiệt (K80 / K58). Mỗi lần bấm in là một push-entry độc lập kèm `prescriptionNo`, `name`, `price`, `paymentMethod`, `branch`, `date`, `printedAt`, `printedTime`, `timestamp`, `note`, `paperSize`.
+  - Lưu trữ bất biến (append-only) giúp theo dõi chính xác từng lượt in và phát hiện bill nào bị in nhiều lần (in trùng / in lại).
+
 - `monthlyMedicines/{branch}/{monthKey}`
   - Dữ liệu tiền thuốc lưu theo tháng.
 
@@ -127,6 +131,31 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 
 ### `MedicineManagement`
 - Module dành riêng cho Admin để thiết lập Danh mục thuốc và giá thuốc mặc định (sẽ được tải vào `MedicineSection` qua danh sách xổ xuống).
+
+### `BillPrintModal` (Hộp thoại In Bill Nhiệt K80/K58)
+- Hỗ trợ in hóa đơn tính tiền nhiệt trực tiếp từ trình duyệt cho máy in nhiệt (khổ 80mm và 58mm).
+- Tích hợp số điện thoại Hotline `0939 994 992` và lời nhắc khách hàng `(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)`.
+- Khi bấm `Bấm In Bill`, hệ thống tự động ghi nhật ký (audit log) lên Firebase node `printLogs_v2/{branch}/{dateKey}` để tài khoản Admin theo dõi và phát hiện các bill in nhiều lần.
+
+### `PrintSummaryReportView` (Tổng Hợp & Giám Sát Bill In Trong Ngày - Tài khoản Admin)
+- Dành riêng cho tài khoản Admin (nút điều hướng `🖨️ Tổng hợp bill in` trên thanh menu chính).
+- Đồng bộ thời gian thực (Real-time Sync) với Firebase Database khi có bất kỳ nhân viên nào bấm in bill.
+- **Thẻ KPI tổng hợp:**
+  - Tổng số lượt in (kể cả in lại).
+  - Số toa khám thực tế đã in.
+  - Số lượng bill in nhiều lần (kèm số lượt in trùng).
+  - Doanh thu bill đã in (phân tách Tiền mặt và Chuyển khoản).
+- **Cảnh báo đặc biệt: Danh sách bill in từ 2 lần trở lên:**
+  - Tự động gom nhóm theo số toa để phát hiện chính xác toa nào bị in từ 2 lần trở lên.
+  - Hiển thị huy hiệu đỏ nổi bật `⚠️ ĐÃ IN X LẦN` kèm timeline chi tiết các lần bấm in (giờ in, khổ giấy, khoảng cách thời gian giữa các lần in, lời dặn).
+  - Nút xem lại và in lại bill trực tiếp.
+- **Đối chiếu sổ khám:** Tự động phát hiện các toa khám đã lưu trong sổ khám ngày nhưng chưa được bấm in bill nhiệt.
+- **Bảng kê chi tiết từng lượt in:**
+  - Hỗ trợ đầy đủ giao diện Desktop Table và Mobile Cards.
+  - Bộ lọc tabs: `Tất cả`, `⚠️ In nhiều lần`, `💵 Tiền mặt`, `💳 Chuyển khoản`.
+  - Ô tìm kiếm tức thì theo số toa, tên bệnh nhân, số tiền, giờ in, lời dặn.
+  - Chức năng xuất dữ liệu ra file Excel (`XLSX`).
+  - Hỗ trợ xem lại mẫu bill và in lại ngay từ bảng kê.
 
 ## 5. Những lưu ý khi chỉnh sửa
 - **Tránh ghi đè State:** Khi cần cập nhật State từ bên trong Component con, luôn dùng Functional State Update để tránh race-condition (Ví dụ: `setDailyData(prev => ({...prev, examinations: exams}))`).

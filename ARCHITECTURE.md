@@ -169,7 +169,7 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - `🖨️ In thường (Có dấu)`: Sử dụng thẻ portal `#thermal-print-portal` độc lập trong `@media print` để mở hộp thoại in mặc định của hệ thống với font chữ vector chuẩn.
   - `📋 Sao chép text`: Hỗ trợ sao chép toàn bộ nội dung bill vào clipboard để gửi Zalo hoặc dán vào ứng dụng khác.
 - **Định dạng hiển thị chuẩn in nhiệt:**
-  - Cỡ chữ toàn bộ tờ bill được nâng lên to rõ ràng (từ 18px đến 26px, in đậm font-weight: 700 - 900) phù hợp với độ phân giải 203 DPI của máy in nhiệt, giúp chữ in ra to, sắc nét và dễ đọc từ xa.
+  - Cỡ chữ toàn bộ tờ bill được nâng lên to gấp 1.5 lần (từ 24px đến 38px, in đậm font-weight: 700 - 900) phù hợp với độ phân giải 203 DPI của máy in nhiệt, giúp chữ in ra siêu to, đậm đà, sắc nét và dễ đọc rõ từ xa.
   - Số thứ tự toa và tên bé được đặt liền kề ngay sau dấu hai chấm (`Toa số: #10`, `Bé: NGUYỄN VĂN A`), không bị đẩy dạt sang hai bên mép giấy.
 - Tích hợp số điện thoại Hotline `0939 994 992`, thông tin "Bé: ...", lời nhắc khách hàng `(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)` và lời chúc in đậm `❤️ Chúc bé mau khỏe! ❤️`.
 - Tự động ghi nhật ký (audit log) lên Firebase node `printLogs_v2/{branch}/{dateKey}` mỗi khi bấm in để tài khoản Admin theo dõi và phát hiện các bill in nhiều lần.

@@ -11,6 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         /* iOS Specific Optimizations */
         * {
@@ -3020,10 +3021,10 @@
         }) {
             const branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
             const is58 = paperSize === '58mm';
-            const maxWidth = is58 ? '52mm' : '72mm';
-            const fontSize = is58 ? '11px' : '13px';
-            const titleSize = is58 ? '14px' : '16px';
-            const totalSize = is58 ? '14px' : '16px';
+            const billWidth = is58 ? '360px' : '480px';
+            const fontSize = is58 ? '13px' : '15px';
+            const titleSize = is58 ? '19px' : '22px';
+            const totalSize = is58 ? '19px' : '23px';
             
             const priceNum = parseFloat(price || 0);
             const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
@@ -3033,67 +3034,67 @@
             const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 
             return `
-                <div style="width: 100%; max-width: ${maxWidth}; margin: 0 auto; padding: 2mm 1mm; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: ${fontSize}; line-height: 1.35; color: #000; background: #fff;">
+                <div style="width: ${billWidth}; max-width: 100%; margin: 0 auto; padding: 12px 14px 90px 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: ${fontSize}; line-height: 1.4; color: #000000; background: #ffffff; box-sizing: border-box;">
                     <!-- Header Phòng khám -->
-                    <div style="text-align: center; margin-bottom: 5px;">
-                        <div style="font-weight: 900; font-size: ${titleSize}; text-transform: uppercase;">Phòng Khám Bách Bảo</div>
-                        <div style="font-size: ${is58 ? '10px' : '12px'}; font-weight: 600; margin-top: 2px;">${branchName}</div>
-                        <div style="font-size: ${is58 ? '10px' : '12px'}; font-weight: 700; margin-top: 1px;">📞 Hotline: 0939 994 992</div>
-                        <div style="margin: 5px 0; border-top: 1px dashed #000;"></div>
-                        <div style="font-weight: 800; font-size: ${is58 ? '12px' : '14px'}; text-transform: uppercase;">PHIẾU THANH TOÁN</div>
+                    <div style="text-align: center; margin-bottom: 8px;">
+                        <div style="font-weight: 900; font-size: ${titleSize}; letter-spacing: -0.5px; text-transform: uppercase;">Phòng Khám Bách Bảo</div>
+                        <div style="font-size: ${is58 ? '12px' : '14px'}; font-weight: 700; margin-top: 2px;">${branchName}</div>
+                        <div style="font-size: ${is58 ? '12px' : '13px'}; font-weight: 700; margin-top: 2px;">📞 Hotline: 0939 994 992</div>
+                        <div style="margin: 8px 0; border-top: 2px dashed #000000;"></div>
+                        <div style="font-weight: 900; font-size: ${is58 ? '15px' : '18px'}; text-transform: uppercase; letter-spacing: 0.5px;">PHIẾU THANH TOÁN</div>
                     </div>
 
                     <!-- Thông tin toa & thời gian -->
-                    <div style="margin-bottom: 5px;">
-                        <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+                    <div style="margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; font-size: ${is58 ? '12px' : '13px'}; margin-bottom: 4px;">
                             <span>Ngày: <b>${dateFormatted}</b></span>
                             <span>Giờ: <b>${timeFormatted}</b></span>
                         </div>
-                        <div style="margin-bottom: 2px;">
-                            <span>Toa số: </span>
-                            <span style="font-weight: 900; font-size: ${is58 ? '13px' : '15px'};">#${prescriptionNo || '---'}</span>
+                        <div style="margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline;">
+                            <span>Toa số:</span>
+                            <span style="font-weight: 900; font-size: ${is58 ? '16px' : '19px'};">#${prescriptionNo || '---'}</span>
                         </div>
-                        <div style="margin-bottom: 2px;">
-                            <span>Bé: </span>
-                            <span style="font-weight: 700;">${name && name.trim() ? name.trim() : '---'}</span>
+                        <div style="margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline;">
+                            <span>Bé:</span>
+                            <span style="font-weight: 800; font-size: ${is58 ? '14px' : '16px'}; text-transform: uppercase;">${name && name.trim() ? name.trim() : '---'}</span>
                         </div>
                     </div>
 
                     <!-- Bảng nội dung thu tiền -->
-                    <div style="border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0; margin-bottom: 5px;">
-                        <div style="display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 3px; font-size: ${is58 ? '10px' : '11px'}; text-transform: uppercase;">
+                    <div style="border-top: 2px dashed #000000; border-bottom: 2px dashed #000000; padding: 6px 0; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 800; margin-bottom: 4px; font-size: ${is58 ? '12px' : '13px'}; text-transform: uppercase;">
                             <span>Nội dung</span>
                             <span>Thành tiền</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: ${is58 ? '13px' : '15px'};">
                             <span>Khám bệnh & Thuốc</span>
-                            <span style="font-weight: 700;">${amountStr}</span>
+                            <span style="font-weight: 800;">${amountStr}</span>
                         </div>
                     </div>
 
                     <!-- Tổng cộng & Hình thức thanh toán -->
-                    <div style="margin-bottom: 6px;">
-                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px;">
-                            <span style="font-weight: 800; font-size: ${totalSize};">TỔNG CỘNG:</span>
+                    <div style="margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+                            <span style="font-weight: 900; font-size: ${totalSize};">TỔNG CỘNG:</span>
                             <span style="font-weight: 900; font-size: ${totalSize};">${amountStr}</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: ${fontSize};">
                             <span>Hình thức:</span>
-                            <span style="font-weight: 700;">${paymentMethodText}</span>
+                            <span style="font-weight: 800;">${paymentMethodText}</span>
                         </div>
                     </div>
 
                     ${note && note.trim() ? `
-                        <div style="border-top: 1px dotted #888; padding-top: 4px; margin-bottom: 5px; font-size: 11px; font-style: italic;">
+                        <div style="border-top: 1px dashed #000000; padding-top: 6px; margin-bottom: 8px; font-size: ${is58 ? '12px' : '13px'};">
                             <b>Lời dặn:</b> ${note.trim()}
                         </div>
                     ` : ''}
 
                     <!-- Lời cảm ơn & Chúc bé khỏe -->
-                    <div style="border-top: 1px dashed #000; padding-top: 5px; text-align: center; font-size: ${is58 ? '10px' : '11px'};">
-                        <div style="font-weight: 700; margin-bottom: 2px;">❤️ Chúc bé mau khỏe! ❤️</div>
-                        <div style="font-weight: 600; font-style: italic; font-size: ${is58 ? '9px' : '10.5px'}; margin-bottom: 2px;">(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)</div>
-                        <div style="font-weight: 700; color: #000;">Cảm ơn Quý khách & Hẹn gặp lại!</div>
+                    <div style="border-top: 2px dashed #000000; padding-top: 8px; text-align: center; font-size: ${is58 ? '12px' : '13px'};">
+                        <div style="font-weight: 900; font-size: ${is58 ? '14px' : '16px'}; margin-bottom: 4px;">❤️ Chúc bé mau khỏe! ❤️</div>
+                        <div style="font-weight: 700; font-style: italic; font-size: ${is58 ? '11px' : '12px'}; margin-bottom: 4px;">(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)</div>
+                        <div style="font-weight: 900; color: #000000; font-size: ${is58 ? '13px' : '15px'};">Cảm ơn Quý khách & Hẹn gặp lại!</div>
                     </div>
                 </div>
             `;
@@ -3291,11 +3292,43 @@
             };
 
             const [copied, setCopied] = useState(false);
-            const [noAccent, setNoAccent] = useState(true);
+            const [noAccent, setNoAccent] = useState(false);
+            const [isCapturing, setIsCapturing] = useState(false);
 
-            const handleRawBTPrint = () => {
+            const handleRawBTPrint = async () => {
                 recordPrintLog();
 
+                // 1. Khi in CÓ DẤU: Tự động dùng html2canvas chụp bill thành ảnh PNG sắc nét gửi sang RawBT
+                if (!noAccent && window.html2canvas) {
+                    const targetNode = document.getElementById('thermal-bill-capture-target');
+                    if (targetNode) {
+                        try {
+                            setIsCapturing(true);
+                            const canvas = await window.html2canvas(targetNode, {
+                                scale: 1.5,
+                                backgroundColor: '#ffffff',
+                                logging: false,
+                                useCORS: true
+                            });
+                            const dataUrl = canvas.toDataURL('image/png');
+                            setIsCapturing(false);
+
+                            // Bắn ảnh có dấu trực tiếp sang app RawBT
+                            const rawbtUrl = "rawbt:" + dataUrl;
+                            const link = document.createElement('a');
+                            link.href = rawbtUrl;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            return;
+                        } catch (err) {
+                            console.error('Lỗi tạo ảnh bill:', err);
+                            setIsCapturing(false);
+                        }
+                    }
+                }
+
+                // 2. Khi chọn không dấu hoặc fallback: Gửi text qua Intent
                 const billText = generateThermalBillText({
                     prescriptionNo: bill.prescriptionNo,
                     name: bill.name,
@@ -3433,11 +3466,14 @@
                         </div>
 
                         {/* Xem trước mẫu bill */}
-                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[42vh] overflow-y-auto">
-                            <div 
-                                className="bg-white p-3.5 shadow-md border border-gray-200 rounded-sm"
-                                dangerouslySetInnerHTML={{ __html: billHtml }}
-                            />
+                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[44vh] overflow-y-auto">
+                            <div className="bg-white shadow-md border border-gray-200 rounded-sm overflow-hidden inline-block">
+                                <div 
+                                    id="thermal-bill-capture-target"
+                                    style={{ background: '#ffffff', color: '#000000', display: 'inline-block' }}
+                                    dangerouslySetInnerHTML={{ __html: billHtml }}
+                                />
+                            </div>
                         </div>
 
                         {/* Nút bấm hành động */}
@@ -3467,30 +3503,30 @@
                                     type="button"
                                     onClick={handleExecutePrint}
                                     className="px-3.5 py-2.5 bg-gray-700 hover:bg-gray-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow transition flex items-center justify-center gap-1.5"
-                                    title="In qua hộp thoại in của trình duyệt / PC"
+                                    title="In qua hộp thoại in của điện thoại / Laptop (100% có dấu, sắc nét)"
                                 >
                                     <span>🖨️</span>
-                                    <span>In thường (PC)</span>
+                                    <span>In thường (Có dấu)</span>
                                 </button>
                                 <button
                                     type="button"
                                     onClick={handleRawBTPrint}
-                                    className="flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
-                                    title="In siêu tốc 1 giây qua app RawBT cho điện thoại Android"
+                                    disabled={isCapturing}
+                                    className={`flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-1.5 ${isCapturing ? 'opacity-70 cursor-wait' : ''}`}
+                                    title="Chụp ảnh tờ bill sắc nét có dấu tiếng Việt bắn thẳng sang app RawBT"
                                 >
-                                    <span>⚡</span>
-                                    <span>In siêu tốc (RawBT)</span>
+                                    <span>{isCapturing ? '⏳' : '⚡'}</span>
+                                    <span>{isCapturing ? 'Đang chụp ảnh bill...' : (noAccent ? 'In không dấu (RawBT)' : 'In Có Dấu (RawBT)')}</span>
                                 </button>
                             </div>
-                            <div className="text-[11px] text-gray-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 leading-relaxed space-y-1">
-                                <div className="font-bold text-amber-900 flex items-center gap-1">
-                                    <span>💡</span>
-                                    <span>Mẹo khắc phục Lỗi tiếng Việt & Chiều dài bill:</span>
+                            <div className="text-[11px] text-gray-700 bg-emerald-50/80 border border-emerald-200 rounded-lg p-2.5 leading-relaxed space-y-1">
+                                <div className="font-bold text-emerald-900 flex items-center gap-1">
+                                    <span>✨</span>
+                                    <span>In Tiếng Việt CÓ DẤU 100% & ĐẦY ĐỦ CHIỀU DÀI:</span>
                                 </div>
                                 <div className="text-gray-600 pl-4 space-y-0.5">
-                                    <div>• <b>Cách 1 (In có dấu cực đẹp):</b> Mở app <b>RawBT</b> ➡️ <b>Cài đặt (Settings)</b> ➡️ <b>Phương thức in (Print method)</b> ➡️ chọn <b>Đồ họa (Graphics)</b>.</div>
-                                    <div>• <b>Cách 2:</b> Bật tùy chọn <b>"In Tiếng Việt không dấu"</b> ở trên để in sạch đẹp 100% không bao giờ bị lỗi dấu.</div>
-                                    <div>• Chiều dài tờ bill đã được thêm khoảng cách và dòng đẩy giấy qua dao cắt máy in.</div>
+                                    <div>• Nút <b>⚡ In Có Dấu (RawBT)</b>: Tự động chụp tờ bill thành ảnh sắc nét gửi sang RawBT. Máy in Xprinter in ra <b>chữ đậm có dấu 100%, bảng biểu đẹp mắt và không bao giờ bị lỗi font</b>!</div>
+                                    <div>• Chiều dài tờ bill đã được tự động thêm 2.5cm lề dưới, đảm bảo dao cắt máy in không bao giờ chém mất chữ.</div>
                                 </div>
                             </div>
                         </div>

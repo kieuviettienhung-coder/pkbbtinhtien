@@ -155,10 +155,20 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 ### `MedicineManagement`
 - Module dành riêng cho Admin để thiết lập Danh mục thuốc và giá thuốc mặc định (sẽ được tải vào `MedicineSection` qua danh sách xổ xuống).
 
-### `BillPrintModal` (Hộp thoại In Bill Nhiệt K80/K58)
-- Hỗ trợ in hóa đơn tính tiền nhiệt trực tiếp từ trình duyệt cho máy in nhiệt (khổ 80mm và 58mm).
-- Tích hợp số điện thoại Hotline `0939 994 992` và lời nhắc khách hàng `(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)`.
-- Khi bấm `Bấm In Bill`, hệ thống tự động ghi nhật ký (audit log) lên Firebase node `printLogs_v2/{branch}/{dateKey}` để tài khoản Admin theo dõi và phát hiện các bill in nhiều lần.
+### `BillPrintModal` (Hộp thoại In Bill Nhiệt K80/K58 & Tích hợp RawBT / html2canvas)
+- Hỗ trợ in hóa đơn tính tiền nhiệt trực tiếp từ điện thoại Android và Laptop cho máy in nhiệt (khổ 80mm và 58mm).
+- **Cơ chế in Tiếng Việt có dấu 100% không phụ thuộc ROM máy in (`html2canvas` + RawBT Graphic Mode):**
+  - Các dòng máy in nhiệt Trung Quốc/nội địa (Xprinter, Zywell...) thường có ROM firmware tiếng Anh/Trung, không chứa font Unicode tiếng Việt có dấu. Khi gửi chuỗi văn bản UTF-8, máy in sẽ in ra các ký tự `?` hoặc ký tự rác.
+  - Giải pháp tối ưu: Tích hợp thư viện `html2canvas` để tự động render phần tử hóa đơn DOM thành ảnh PNG sắc nét (màu đen `#000000` trên nền trắng `#ffffff`, không dính bóng mờ hay viền xám).
+  - Sau đó gọi `rawbt:data:image/png;base64,...` sang ứng dụng **RawBT Print Service** trên Android. RawBT in hóa đơn dưới dạng đồ họa raster (`GS v 0`), cho ra bản in có dấu sắc nét 100%, in đậm, định dạng căn chỉnh chuẩn xác và không bao giờ lỗi font.
+- **Lề dưới chống cắt cụt bill (Bottom Padding 90px / ~28mm):**
+  - Đầu in nhiệt và dao cắt/thanh xé của máy in cách nhau khoảng 2.5 - 3cm. Mã nguồn bổ sung lề dưới `padding-bottom: 90px` (và 8 dòng trống trong chế độ text) đảm bảo giấy luôn được đẩy qua dao cắt hoàn toàn trước khi cắt, không làm mất chữ "Cảm ơn Quý khách & Hẹn gặp lại!".
+- **Các phương thức in linh hoạt:**
+  - `⚡ In Có Dấu (RawBT)`: Tự động chụp ảnh bill sắc nét có dấu 100% gửi sang app RawBT.
+  - `🖨️ In thường (Có dấu)`: Sử dụng thẻ portal `#thermal-print-portal` độc lập trong `@media print` để mở hộp thoại in mặc định của hệ thống với font chữ vector chuẩn.
+  - `📋 Sao chép text`: Hỗ trợ sao chép toàn bộ nội dung bill vào clipboard để gửi Zalo hoặc dán vào ứng dụng khác.
+- Tích hợp số điện thoại Hotline `0939 994 992`, thông tin "Bé: ...", lời nhắc khách hàng `(Quý khách lưu ý chỉ thanh toán đúng số tiền trong bill)` và lời chúc in đậm `❤️ Chúc bé mau khỏe! ❤️`.
+- Tự động ghi nhật ký (audit log) lên Firebase node `printLogs_v2/{branch}/{dateKey}` mỗi khi bấm in để tài khoản Admin theo dõi và phát hiện các bill in nhiều lần.
 
 ### `PrintSummaryReportView` (Tổng Hợp & Giám Sát Bill In Trong Ngày - Tài khoản Admin)
 - Dành riêng cho tài khoản Admin (nút điều hướng `🖨️ Tổng hợp bill in` trên thanh menu chính).

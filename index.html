@@ -3099,7 +3099,85 @@
             `;
         }
 
-// Modal xem trước và in bill cho máy in nhiệt
+        // Helper căn giữa và 2 cột cho văn bản in nhiệt RawBT
+        function centerTextForReceipt(str, width) {
+            str = String(str || '').trim();
+            if (str.length >= width) return str;
+            const pad = Math.floor((width - str.length) / 2);
+            return ' '.repeat(pad) + str;
+        }
+
+        function rowTwoColForReceipt(left, right, width) {
+            left = String(left || '');
+            right = String(right || '');
+            const spaces = width - left.length - right.length;
+            if (spaces <= 0) return left + ' ' + right;
+            return left + ' '.repeat(spaces) + right;
+        }
+
+        // Helper: Sinh nội dung dạng Text thuần túy cho app RawBT (nhận dạng tức thì, in trong 1 giây)
+        function generateThermalBillText({
+            prescriptionNo = '',
+            name = '',
+            price = '',
+            paymentMethod = 'cash',
+            branch = 'nga-bay',
+            date = '',
+            time = '',
+            note = '',
+            paperSize = '80mm'
+        }) {
+            const is58 = paperSize === '58mm';
+            const width = is58 ? 32 : 40;
+            const divider = '='.repeat(width);
+            const dashed = '-'.repeat(width);
+
+            const branchName = branch === 'thot-not' ? 'Chi nhánh Thốt Nốt' : 'Chi nhánh Ngã Bảy';
+            const priceNum = parseFloat(price || 0);
+            const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
+            const paymentMethodText = paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt';
+            const dateFormatted = date ? date.split('-').reverse().join('/') : new Date().toLocaleDateString('vi-VN');
+            const timeFormatted = time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+            let lines = [];
+            lines.push(divider);
+            lines.push(centerTextForReceipt('PHÒNG KHÁM BÁCH BẢO', width));
+            lines.push(centerTextForReceipt(branchName, width));
+            lines.push(centerTextForReceipt('Hotline: 0939 994 992', width));
+            lines.push(dashed);
+            lines.push(centerTextForReceipt('PHIẾU THANH TOÁN', width));
+            lines.push(dashed);
+            lines.push(rowTwoColForReceipt('Ngày: ' + dateFormatted, 'Giờ: ' + timeFormatted, width));
+            lines.push('Toa số: #' + (prescriptionNo || '---'));
+            lines.push('Bé: ' + (name && name.trim() ? name.trim() : '---'));
+            lines.push(dashed);
+            lines.push(rowTwoColForReceipt('Nội dung', 'Thành tiền', width));
+            lines.push(rowTwoColForReceipt('Khám bệnh & Thuốc', amountStr, width));
+            lines.push(dashed);
+            lines.push(rowTwoColForReceipt('TỔNG CỘNG:', amountStr, width));
+            lines.push(rowTwoColForReceipt('Hình thức:', paymentMethodText, width));
+
+            if (note && note.trim()) {
+                lines.push(dashed);
+                lines.push('Lời dặn: ' + note.trim());
+            }
+
+            lines.push(dashed);
+            lines.push(centerTextForReceipt('❤️ Chúc bé mau khỏe! ❤️', width));
+            if (is58) {
+                lines.push(centerTextForReceipt('(Lưu ý: chỉ thanh toán', width));
+                lines.push(centerTextForReceipt('đúng số tiền trong bill)', width));
+            } else {
+                lines.push(centerTextForReceipt('(Quý khách lưu ý chỉ thanh toán đúng bill)', width));
+            }
+            lines.push(centerTextForReceipt('Cảm ơn Quý khách & Hẹn gặp lại!', width));
+            lines.push(divider);
+            lines.push('\n\n\n'); // Đẩy giấy qua dao cắt
+
+            return lines.join('\n');
+        }
+
+        // Modal xem trước và in bill cho máy in nhiệt
         function BillPrintModal({ bill, onClose }) {
             const [paperSize, setPaperSize] = useState('80mm');
             const [note, setNote] = useState('');
@@ -3163,10 +3241,12 @@
                 }, 150);
             };
 
+            const [copied, setCopied] = useState(false);
+
             const handleRawBTPrint = () => {
                 recordPrintLog();
 
-                const billHtmlContent = generateThermalBillHtml({
+                const billText = generateThermalBillText({
                     prescriptionNo: bill.prescriptionNo,
                     name: bill.name,
                     price: bill.price,
@@ -3178,16 +3258,34 @@
                     paperSize: paperSize
                 });
 
-                const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Bill PKBB</title><style>body{margin:0;padding:4px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#000;background:#fff;}</style></head><body>${billHtmlContent}</body></html>`;
-
                 try {
-                    const base64Html = btoa(unescape(encodeURIComponent(fullHtml)));
+                    const encodedText = encodeURIComponent(billText);
                     const playStoreUrl = encodeURIComponent("https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter");
-                    const intentUrl = `intent:data:text/html;base64,${base64Html}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=${playStoreUrl};end;`;
+                    const intentUrl = `intent:${encodedText}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=${playStoreUrl};end;`;
                     window.location.href = intentUrl;
                 } catch (e) {
-                    console.error('Lỗi mã hóa Base64 cho RawBT:', e);
-                    window.print();
+                    console.error('Lỗi mở RawBT Intent:', e);
+                    handleExecutePrint();
+                }
+            };
+
+            const handleCopyText = () => {
+                const billText = generateThermalBillText({
+                    prescriptionNo: bill.prescriptionNo,
+                    name: bill.name,
+                    price: bill.price,
+                    paymentMethod: bill.paymentMethod,
+                    branch: bill.branch,
+                    date: bill.date,
+                    time: timeString,
+                    note: note,
+                    paperSize: paperSize
+                });
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(billText).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                    }).catch(() => {});
                 }
             };
 
@@ -3274,7 +3372,20 @@
 
                         {/* Nút bấm hành động */}
                         <div className="p-3.5 bg-white border-t border-gray-200 space-y-2.5">
-                            <div className="flex gap-2 justify-end">
+                            <div className="flex flex-wrap gap-2 justify-end items-center">
+                                <button
+                                    type="button"
+                                    onClick={handleCopyText}
+                                    className={`px-3 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1 ${
+                                        copied 
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                                            : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-200'
+                                    }`}
+                                    title="Sao chép toàn bộ văn bản tờ bill để dán vào RawBT hoặc Zalo"
+                                >
+                                    <span>{copied ? '✅' : '📋'}</span>
+                                    <span>{copied ? 'Đã chép text!' : 'Sao chép text'}</span>
+                                </button>
                                 <button
                                     type="button"
                                     onClick={onClose}
@@ -3285,7 +3396,7 @@
                                 <button
                                     type="button"
                                     onClick={handleExecutePrint}
-                                    className="flex-1 sm:flex-none px-3.5 py-2.5 bg-gray-700 hover:bg-gray-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow transition flex items-center justify-center gap-1.5"
+                                    className="px-3.5 py-2.5 bg-gray-700 hover:bg-gray-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow transition flex items-center justify-center gap-1.5"
                                     title="In qua hộp thoại in của trình duyệt / PC"
                                 >
                                     <span>🖨️</span>
@@ -3298,11 +3409,11 @@
                                     title="In siêu tốc 1 giây qua app RawBT cho điện thoại Android"
                                 >
                                     <span>⚡</span>
-                                    <span>In siêu tốc (Android)</span>
+                                    <span>In siêu tốc (RawBT)</span>
                                 </button>
                             </div>
                             <div className="text-[11px] text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-2 leading-relaxed">
-                                <span className="font-bold text-amber-800">💡 Mẹo cho ĐT Android:</span> Nếu in thường bị chậm hoặc máy in giật cục, hãy cài app miễn phí <span className="font-bold text-blue-600">RawBT</span> trên CH Play (kết nối IP <span className="font-mono font-bold text-indigo-700">192.168.23.21:9100</span>) rồi bấm <b>⚡ In siêu tốc (Android)</b> để máy in chạy trong 1 giây!
+                                <span className="font-bold text-amber-800">💡 Hướng dẫn RawBT:</span> Khi bấm <b>⚡ In siêu tốc (RawBT)</b>, nội dung bill sẽ hiện đầy đủ trong app RawBT ➡️ chỉ cần chạm biểu tượng <span className="font-bold">Máy in</span> ở góc app là bill phóng ra ngay lập tức trong 1 giây!
                             </div>
                         </div>
                     </div>

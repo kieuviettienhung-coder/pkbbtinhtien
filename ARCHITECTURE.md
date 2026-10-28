@@ -98,7 +98,8 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - Tự động ghi nhật ký in vào Firebase (`printLogs_v2/{branch}/{dateKey}`) để Admin theo dõi bill in nhiều lần.
 - **Tối ưu hóa in siêu tốc cho điện thoại Android:**
   - **In thường (PC):** Sử dụng `window.print()` chuẩn trình duyệt cho Laptop / PC / iPhone AirPrint.
-  - **In siêu tốc (Android / RawBT):** Sử dụng giao thức Android Intent (`ru.a402d.rawbtprinter`) bắn trực tiếp HTML mã hóa Base64 sang app RawBT.
+  - **In siêu tốc (Android / RawBT):** Sử dụng giao thức Android Intent (`ru.a402d.rawbtprinter`) bắn trực tiếp chuỗi văn bản biên lai đã định dạng (plain text receipt) sang app RawBT. Hỗ trợ căn giữa, phân cột, nét đứt, hotline, số toa và lời dặn hoàn hảo cho cả khổ K80 và K58.
+  - Tích hợp nút **📋 Sao chép text bill** giúp sao chép nội dung nhanh vào bộ nhớ tạm.
   - Giải quyết triệt để vấn đề Android Print Service mặc định chuyển hóa bill thành file ảnh bitmap khổng lồ gây nghẽn buffer làm máy in giật cục, cho phép máy in Xprinter chạy ra bill ngay trong 1 giây.
 
 ### `PrintSummaryReportView` (Báo cáo & Giám sát Bill In Trong Ngày cho Admin)

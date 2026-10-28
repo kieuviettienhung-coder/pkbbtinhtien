@@ -1216,6 +1216,16 @@
                                     >
                                         📅 Báo cáo năm
                                     </button>
+                                    <button
+                                        onClick={() => setCurrentView('printReport')}
+                                        className={`px-4 py-2 rounded-lg font-semibold transition ${
+                                            currentView === 'printReport'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        🖨️ Tổng hợp bill in
+                                    </button>
                                     {isMasterAdmin && (
                                         <button
                                             onClick={() => setCurrentView('medicine')}
@@ -1517,6 +1527,16 @@
                         <MedicineManagement 
                             medicineList={medicineList}
                             setMedicineList={setMedicineList}
+                        />
+                    )}
+
+                    {currentView === 'printReport' && userRole === 'admin' && (
+                        <PrintSummaryReportView 
+                            key={`print_report_${selectedBranch}`}
+                            selectedBranch={selectedBranch}
+                            selectedDate={selectedDate}
+                            allowedBranch={allowedBranch}
+                            isMasterAdmin={isMasterAdmin}
                         />
                     )}
                 </div>
@@ -3068,7 +3088,7 @@
             `;
         }
 
-        // Modal xem trước và in bill cho máy in nhiệt
+// Modal xem trước và in bill cho máy in nhiệt
         function BillPrintModal({ bill, onClose }) {
             const [paperSize, setPaperSize] = useState('80mm');
             const [note, setNote] = useState('');
@@ -3094,6 +3114,35 @@
                         paperSize: paperSize
                     });
                 }
+
+                // Ghi log lượt in bill vào Firebase để Admin tổng hợp và giám sát các bill in nhiều lần
+                try {
+                    const branchKey = bill.branch || 'nga-bay';
+                    const rawDate = bill.date || new Date().toISOString().split('T')[0];
+                    const dateKey = String(rawDate).replace(/-/g, '');
+                    const now = new Date();
+                    const printRecord = {
+                        prescriptionNo: String(bill.prescriptionNo || '').trim(),
+                        name: String(bill.name || '').trim(),
+                        price: bill.price !== undefined && bill.price !== null ? String(bill.price) : '0',
+                        paymentMethod: bill.paymentMethod || 'cash',
+                        branch: branchKey,
+                        date: rawDate,
+                        dateKey: dateKey,
+                        printedAt: now.toISOString(),
+                        printedTime: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                        timestamp: (typeof firebase !== 'undefined' && firebase.database && firebase.database.ServerValue) ? firebase.database.ServerValue.TIMESTAMP : Date.now(),
+                        note: String(note || '').trim(),
+                        paperSize: paperSize
+                    };
+
+                    if (typeof db !== 'undefined' && db && db.ref) {
+                        db.ref(`printLogs_v2/${branchKey}/${dateKey}`).push(printRecord);
+                    }
+                } catch (logErr) {
+                    console.error('Lỗi ghi log in bill:', logErr);
+                }
+
                 window.print();
             };
 
@@ -3197,6 +3246,1056 @@
                             </button>
                         </div>
                     </div>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // GIAO DIỆN TỔNG HỢP & GIÁM SÁT BILL IN TRONG NGÀY (DÀNH CHO ADMIN)
+        // ==========================================
+        function PrintSummaryReportView({ selectedBranch: propBranch, selectedDate: propDate, allowedBranch, isMasterAdmin }) {
+            const [currentBranch, setCurrentBranch] = useState(() => {
+                if (allowedBranch && allowedBranch !== 'all') return allowedBranch;
+                return propBranch || 'nga-bay';
+            });
+            const [currentDate, setCurrentDate] = useState(() => {
+                return propDate || new Date().toISOString().split('T')[0];
+            });
+
+            const [logs, setLogs] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [dailyPrescriptions, setDailyPrescriptions] = useState([]);
+
+            const [filterTab, setFilterTab] = useState('all'); // 'all' | 'duplicates' | 'cash' | 'transfer'
+            const [searchTerm, setSearchTerm] = useState('');
+            const [sortAsc, setSortAsc] = useState(false); // false = mới nhất trước
+            const [billToReprint, setBillToReprint] = useState(null);
+
+            // Đồng bộ dữ liệu in từ Firebase Realtime Database
+            useEffect(() => {
+                setLoading(true);
+                const dateKey = String(currentDate).replace(/-/g, '');
+                const refsToOff = [];
+
+                if (currentBranch === 'all') {
+                    const nbRef = db.ref(`printLogs_v2/nga-bay/${dateKey}`);
+                    const tnRef = db.ref(`printLogs_v2/thot-not/${dateKey}`);
+                    refsToOff.push(nbRef, tnRef);
+
+                    let nbLogs = [];
+                    let tnLogs = [];
+
+                    const updateCombined = () => {
+                        setLogs([...nbLogs, ...tnLogs]);
+                        setLoading(false);
+                    };
+
+                    nbRef.on('value', (snap) => {
+                        const val = snap.val() || {};
+                        nbLogs = Object.entries(val).map(([key, item]) => ({
+                            id: key,
+                            ...item,
+                            branch: item.branch || 'nga-bay'
+                        }));
+                        updateCombined();
+                    });
+
+                    tnRef.on('value', (snap) => {
+                        const val = snap.val() || {};
+                        tnLogs = Object.entries(val).map(([key, item]) => ({
+                            id: key,
+                            ...item,
+                            branch: item.branch || 'thot-not'
+                        }));
+                        updateCombined();
+                    });
+
+                    // So sánh với sổ khám 2 chi nhánh
+                    const nbDailyRef = db.ref(`daily_v2/nga-bay/${dateKey}`);
+                    const tnDailyRef = db.ref(`daily_v2/thot-not/${dateKey}`);
+                    refsToOff.push(nbDailyRef, tnDailyRef);
+                    let nbRx = [];
+                    let tnRx = [];
+                    const updateDailyCombined = () => setDailyPrescriptions([...nbRx, ...tnRx]);
+
+                    nbDailyRef.on('value', (snap) => {
+                        const val = snap.val();
+                        nbRx = (val && Array.isArray(val.prescriptions)) ? val.prescriptions.map(p => ({ ...p, branch: 'nga-bay' })) : [];
+                        updateDailyCombined();
+                    });
+                    tnDailyRef.on('value', (snap) => {
+                        const val = snap.val();
+                        tnRx = (val && Array.isArray(val.prescriptions)) ? val.prescriptions.map(p => ({ ...p, branch: 'thot-not' })) : [];
+                        updateDailyCombined();
+                    });
+                } else {
+                    const branchRef = db.ref(`printLogs_v2/${currentBranch}/${dateKey}`);
+                    refsToOff.push(branchRef);
+                    branchRef.on('value', (snap) => {
+                        const val = snap.val() || {};
+                        const list = Object.entries(val).map(([key, item]) => ({
+                            id: key,
+                            ...item,
+                            branch: item.branch || currentBranch
+                        }));
+                        setLogs(list);
+                        setLoading(false);
+                    });
+
+                    const dailyRef = db.ref(`daily_v2/${currentBranch}/${dateKey}`);
+                    refsToOff.push(dailyRef);
+                    dailyRef.on('value', (snap) => {
+                        const val = snap.val();
+                        const list = (val && Array.isArray(val.prescriptions)) ? val.prescriptions.map(p => ({ ...p, branch: currentBranch })) : [];
+                        setDailyPrescriptions(list);
+                    });
+                }
+
+                return () => {
+                    refsToOff.forEach(r => {
+                        if (r && r.off) r.off();
+                    });
+                };
+            }, [currentBranch, currentDate]);
+
+            // Helper tính độ trễ thời gian giữa 2 lần in
+            const getTimeDiffText = (earlierStr, laterStr) => {
+                if (!earlierStr || !laterStr) return '';
+                const t1 = new Date(earlierStr).getTime();
+                const t2 = new Date(laterStr).getTime();
+                if (isNaN(t1) || isNaN(t2)) return '';
+                const diffMs = Math.abs(t2 - t1);
+                const diffSec = Math.floor(diffMs / 1000);
+                if (diffSec < 60) return `${diffSec} giây`;
+                const diffMin = Math.floor(diffSec / 60);
+                const remSec = diffSec % 60;
+                if (diffMin < 60) return `${diffMin} phút ${remSec > 0 ? remSec + 's' : ''}`;
+                const diffHr = Math.floor(diffMin / 60);
+                const remMin = diffMin % 60;
+                return `${diffHr} giờ ${remMin > 0 ? remMin + 'p' : ''}`;
+            };
+
+            // Gom nhóm theo số toa để phát hiện chính xác bill nào được in nhiều lần
+            const groupedByRx = useMemo(() => {
+                const map = {};
+                logs.forEach(log => {
+                    const rawNo = log.prescriptionNo ? String(log.prescriptionNo).trim() : '';
+                    const groupKey = currentBranch === 'all' 
+                        ? `${log.branch || 'nga-bay'}__${rawNo || ('unnamed_' + log.id)}` 
+                        : (rawNo || ('unnamed_' + log.id));
+
+                    if (!map[groupKey]) {
+                        map[groupKey] = {
+                            key: groupKey,
+                            prescriptionNo: rawNo,
+                            branch: log.branch || 'nga-bay',
+                            prints: []
+                        };
+                    }
+                    map[groupKey].prints.push(log);
+                });
+
+                // Sắp xếp các lần in theo thứ tự thời gian tăng dần
+                Object.values(map).forEach(group => {
+                    group.prints.sort((a, b) => {
+                        const tA = a.timestamp || (a.printedAt ? new Date(a.printedAt).getTime() : 0);
+                        const tB = b.timestamp || (b.printedAt ? new Date(b.printedAt).getTime() : 0);
+                        return tA - tB;
+                    });
+                    // Gắn nhãn thứ tự lần in (Lần 1, Lần 2/2...)
+                    group.prints.forEach((p, idx) => {
+                        p.printIndex = idx + 1;
+                        p.totalPrints = group.prints.length;
+                        p.isDuplicate = group.prints.length > 1;
+                    });
+                });
+
+                return map;
+            }, [logs, currentBranch]);
+
+            // Danh sách các bill bị in từ 2 lần trở lên
+            const duplicateGroups = useMemo(() => {
+                return Object.values(groupedByRx).filter(g => g.prints.length > 1 && g.prescriptionNo);
+            }, [groupedByRx]);
+
+            // Tổng hợp các chỉ số KPI
+            const stats = useMemo(() => {
+                const totalPrints = logs.length;
+                const uniqueRxCount = Object.keys(groupedByRx).length;
+                const duplicateRxCount = duplicateGroups.length;
+                const duplicateAttemptsCount = duplicateGroups.reduce((acc, g) => acc + (g.prints.length - 1), 0);
+
+                let uniqueRevenueK = 0;
+                let uniqueCashK = 0;
+                let uniqueTransferK = 0;
+                let totalCashPrints = 0;
+                let totalTransferPrints = 0;
+
+                Object.values(groupedByRx).forEach(group => {
+                    const firstPrint = group.prints[0];
+                    const p = parseFloat(firstPrint.price || 0);
+                    if (!isNaN(p)) {
+                        uniqueRevenueK += p;
+                        if (firstPrint.paymentMethod === 'transfer') {
+                            uniqueTransferK += p;
+                        } else {
+                            uniqueCashK += p;
+                        }
+                    }
+                });
+
+                logs.forEach(l => {
+                    if (l.paymentMethod === 'transfer') totalTransferPrints++;
+                    else totalCashPrints++;
+                });
+
+                let totalVolumeK = 0;
+                logs.forEach(l => {
+                    const p = parseFloat(l.price || 0);
+                    if (!isNaN(p)) totalVolumeK += p;
+                });
+
+                // Đối chiếu với sổ khám
+                const printedRxSet = new Set(
+                    logs.map(l => (currentBranch === 'all' ? `${l.branch}__${String(l.prescriptionNo).trim()}` : String(l.prescriptionNo).trim()))
+                        .filter(Boolean)
+                );
+                const unprintedRx = dailyPrescriptions.filter(p => {
+                    const no = String(p.prescriptionNo || '').trim();
+                    if (!no) return false;
+                    const key = currentBranch === 'all' ? `${p.branch}__${no}` : no;
+                    return !printedRxSet.has(key);
+                });
+
+                return {
+                    totalPrints,
+                    uniqueRxCount,
+                    duplicateRxCount,
+                    duplicateAttemptsCount,
+                    uniqueRevenueK,
+                    uniqueCashK,
+                    uniqueTransferK,
+                    totalCashPrints,
+                    totalTransferPrints,
+                    totalVolumeK,
+                    unprintedRx
+                };
+            }, [logs, groupedByRx, duplicateGroups, dailyPrescriptions, currentBranch]);
+
+            // Lọc và tìm kiếm danh sách lượt in
+            const filteredLogs = useMemo(() => {
+                let list = [...logs];
+
+                if (filterTab === 'duplicates') {
+                    list = list.filter(l => l.isDuplicate);
+                } else if (filterTab === 'cash') {
+                    list = list.filter(l => l.paymentMethod === 'cash');
+                } else if (filterTab === 'transfer') {
+                    list = list.filter(l => l.paymentMethod === 'transfer');
+                }
+
+                if (searchTerm.trim()) {
+                    const term = searchTerm.trim().toLowerCase();
+                    list = list.filter(l => {
+                        const rx = String(l.prescriptionNo || '').toLowerCase();
+                        const name = String(l.name || '').toLowerCase();
+                        const price = String(l.price || '').toLowerCase();
+                        const note = String(l.note || '').toLowerCase();
+                        const time = String(l.printedTime || '').toLowerCase();
+                        return rx.includes(term) || name.includes(term) || price.includes(term) || note.includes(term) || time.includes(term);
+                    });
+                }
+
+                list.sort((a, b) => {
+                    const tA = a.timestamp || (a.printedAt ? new Date(a.printedAt).getTime() : 0);
+                    const tB = b.timestamp || (b.printedAt ? new Date(b.printedAt).getTime() : 0);
+                    return sortAsc ? tA - tB : tB - tA;
+                });
+
+                return list;
+            }, [logs, filterTab, searchTerm, sortAsc]);
+
+            // Xuất báo cáo bill in ra file Excel (XLSX)
+            const handleExportExcel = () => {
+                if (!logs || logs.length === 0) {
+                    alert('⚠️ Chưa có dữ liệu in bill để xuất Excel!');
+                    return;
+                }
+                try {
+                    const rows = logs.map((log, idx) => ({
+                        'STT': idx + 1,
+                        'Giờ in': log.printedTime || '',
+                        'Ngày': log.date || currentDate,
+                        'Chi nhánh': log.branch === 'thot-not' ? 'Thốt Nốt' : 'Ngã Bảy',
+                        'Số toa': log.prescriptionNo || '',
+                        'Bệnh nhân': log.name || '',
+                        'Tiền khám (k)': log.price || 0,
+                        'Thành tiền (VNĐ)': (parseFloat(log.price || 0) * 1000),
+                        'Hình thức TT': log.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt',
+                        'Khổ giấy': log.paperSize || '80mm',
+                        'Lần in': log.printIndex ? `Lần ${log.printIndex}/${log.totalPrints}` : '1',
+                        'Cảnh báo in trùng': log.isDuplicate ? 'CÓ (In nhiều lần)' : 'Không',
+                        'Lời dặn / Ghi chú': log.note || ''
+                    }));
+
+                    const worksheet = XLSX.utils.json_to_sheet(rows);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, 'BangKeBillIn');
+                    const branchTag = currentBranch === 'all' ? '2CN' : currentBranch;
+                    const dateTag = currentDate.replace(/-/g, '');
+                    XLSX.writeFile(workbook, `Tong_hop_bill_in_${branchTag}_${dateTag}.xlsx`);
+                } catch (err) {
+                    console.error('Export error:', err);
+                    alert('Lỗi xuất Excel: ' + err.message);
+                }
+            };
+
+            // Xóa lượt in (chỉ Admin mới có nút này, dùng khi in test hoặc cần điều chỉnh)
+            const handleDeleteLog = async (log) => {
+                if (!confirm(`⚠️ Bạn có chắc chắn muốn xóa bản ghi in của Toa #${log.prescriptionNo || '---'} lúc ${log.printedTime}?\n\n(Lưu ý: Thao tác này chỉ xóa bản ghi lịch sử in bill, không xóa toa khám trong sổ sách)`)) {
+                    return;
+                }
+                try {
+                    const branchKey = log.branch || currentBranch || 'nga-bay';
+                    const dateKey = log.dateKey || currentDate.replace(/-/g, '');
+                    await db.ref(`printLogs_v2/${branchKey}/${dateKey}/${log.id}`).remove();
+                } catch (e) {
+                    alert('Lỗi khi xóa: ' + e.message);
+                }
+            };
+
+            const formattedDateVi = currentDate ? currentDate.split('-').reverse().join('/') : '';
+
+            return (
+                <div className="space-y-6 animate-fadeIn pb-12">
+                    {/* Hero Header & Bộ chọn chi nhánh / ngày */}
+                    <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 rounded-2xl p-4 sm:p-6 text-white shadow-xl">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-2xl sm:text-3xl">🖨️</span>
+                                    <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                                        Tổng Hợp & Giám Sát Bill In Trong Ngày
+                                    </h2>
+                                </div>
+                                <p className="text-xs sm:text-sm text-blue-100 font-medium">
+                                    Quản lý và đối chiếu lịch sử in máy in nhiệt K80/K58. Tự động phát hiện và cảnh báo các bill in lặp lại.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-xs font-bold backdrop-blur-xs">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                                    <span>Real-time Sync</span>
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleExportExcel}
+                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition flex items-center gap-1.5"
+                                    title="Xuất danh sách ra file Excel"
+                                >
+                                    <span>📊</span>
+                                    <span>Xuất Excel</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Thanh chọn nhanh Chi nhánh & Ngày xem */}
+                        <div className="mt-5 pt-4 border-t border-white/15 grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                            {/* Chọn chi nhánh */}
+                            <div>
+                                <label className="block text-xs font-bold text-blue-200 mb-1.5">
+                                    Chi nhánh theo dõi:
+                                </label>
+                                {allowedBranch === 'all' ? (
+                                    <div className="flex bg-black/20 p-1 rounded-xl gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setCurrentBranch('all')}
+                                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-extrabold transition ${
+                                                currentBranch === 'all'
+                                                    ? 'bg-white text-blue-900 shadow-sm'
+                                                    : 'text-white/80 hover:text-white'
+                                            }`}
+                                        >
+                                            🏥 Cả 2 chi nhánh
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCurrentBranch('nga-bay')}
+                                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-extrabold transition ${
+                                                currentBranch === 'nga-bay'
+                                                    ? 'bg-white text-blue-900 shadow-sm'
+                                                    : 'text-white/80 hover:text-white'
+                                            }`}
+                                        >
+                                            Ngã Bảy
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCurrentBranch('thot-not')}
+                                            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-extrabold transition ${
+                                                currentBranch === 'thot-not'
+                                                    ? 'bg-white text-blue-900 shadow-sm'
+                                                    : 'text-white/80 hover:text-white'
+                                            }`}
+                                        >
+                                            Thốt Nốt
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="py-2 px-3 bg-white/10 rounded-xl text-xs sm:text-sm font-bold border border-white/20">
+                                        🏥 {currentBranch === 'nga-bay' ? 'Phòng khám Ngã Bảy' : 'Phòng khám Thốt Nốt'}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Chọn ngày xem */}
+                            <div>
+                                <label className="block text-xs font-bold text-blue-200 mb-1.5">
+                                    Ngày in:
+                                </label>
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCurrentDate(new Date().toISOString().split('T')[0])}
+                                        className={`px-3 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                                            currentDate === new Date().toISOString().split('T')[0]
+                                                ? 'bg-white text-blue-900 shadow-sm'
+                                                : 'bg-white/10 hover:bg-white/20 text-white'
+                                        }`}
+                                    >
+                                        Hôm nay
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const d = new Date();
+                                            d.setDate(d.getDate() - 1);
+                                            setCurrentDate(d.toISOString().split('T')[0]);
+                                        }}
+                                        className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white transition whitespace-nowrap"
+                                    >
+                                        Hôm qua
+                                    </button>
+                                    <input
+                                        type="date"
+                                        value={currentDate}
+                                        onChange={(e) => setCurrentDate(e.target.value)}
+                                        className="flex-1 bg-white text-gray-900 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* KPI Stats Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                        {/* 1. Tổng lượt in */}
+                        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-blue-100 shadow-xs hover:shadow-md transition">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tổng số lượt in</span>
+                                <span className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold">
+                                    🖨️
+                                </span>
+                            </div>
+                            <div className="text-2xl sm:text-3xl font-black text-blue-900">
+                                {stats.totalPrints} <span className="text-sm sm:text-base font-bold text-gray-500">lượt</span>
+                            </div>
+                            <div className="mt-2 text-[11px] text-gray-500 flex items-center gap-1.5">
+                                <span>💵 {stats.totalCashPrints} TM</span>
+                                <span>•</span>
+                                <span>💳 {stats.totalTransferPrints} CK</span>
+                            </div>
+                        </div>
+
+                        {/* 2. Số toa thực tế đã in */}
+                        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-indigo-100 shadow-xs hover:shadow-md transition">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Số toa đã in</span>
+                                <span className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">
+                                    📋
+                                </span>
+                            </div>
+                            <div className="text-2xl sm:text-3xl font-black text-indigo-900">
+                                {stats.uniqueRxCount} <span className="text-sm sm:text-base font-bold text-gray-500">toa</span>
+                            </div>
+                            <div className="mt-2 text-[11px] text-gray-500">
+                                {dailyPrescriptions.length > 0 ? (
+                                    <span>Trên tổng số <b>{dailyPrescriptions.length}</b> toa trong sổ khám</span>
+                                ) : (
+                                    <span>Toa thuốc duy nhất</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 3. Cảnh báo bill in nhiều lần */}
+                        <div className={`rounded-2xl p-4 sm:p-5 border shadow-xs hover:shadow-md transition ${
+                            stats.duplicateRxCount > 0
+                                ? 'bg-gradient-to-br from-red-50 to-orange-50 border-red-300 ring-2 ring-red-200'
+                                : 'bg-white border-gray-100'
+                        }`}>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className={`text-xs font-bold uppercase tracking-wider ${
+                                    stats.duplicateRxCount > 0 ? 'text-red-700' : 'text-gray-500'
+                                }`}>
+                                    Bill in nhiều lần
+                                </span>
+                                <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
+                                    stats.duplicateRxCount > 0 ? 'bg-red-500 text-white animate-bounce' : 'bg-gray-100 text-gray-400'
+                                }`}>
+                                    ⚠️
+                                </span>
+                            </div>
+                            <div className={`text-2xl sm:text-3xl font-black ${
+                                stats.duplicateRxCount > 0 ? 'text-red-600' : 'text-gray-700'
+                            }`}>
+                                {stats.duplicateRxCount} <span className="text-sm sm:text-base font-bold text-gray-500">bill</span>
+                            </div>
+                            <div className="mt-2 text-[11px]">
+                                {stats.duplicateRxCount > 0 ? (
+                                    <span className="text-red-700 font-extrabold bg-red-100/80 px-2 py-0.5 rounded-md inline-block">
+                                        🚨 Có {stats.duplicateAttemptsCount} lượt in trùng / in lại
+                                    </span>
+                                ) : (
+                                    <span className="text-emerald-600 font-semibold">
+                                        ✅ 0 bill in lại (Rất tốt)
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 4. Tổng tiền bill đã in */}
+                        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-emerald-100 shadow-xs hover:shadow-md transition">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Doanh thu bill đã in</span>
+                                <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm font-bold">
+                                    💰
+                                </span>
+                            </div>
+                            <div className="text-2xl sm:text-3xl font-black text-emerald-700">
+                                {stats.uniqueRevenueK.toLocaleString('vi-VN')}k
+                            </div>
+                            <div className="mt-2 text-[11px] text-gray-500">
+                                <span>💵 TM: {stats.uniqueCashK.toLocaleString('vi-VN')}k</span>
+                                <span className="mx-1">•</span>
+                                <span>💳 CK: {stats.uniqueTransferK.toLocaleString('vi-VN')}k</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ======================================================== */}
+                    {/* CẢNH BÁO ĐẶC BIỆT: DANH SÁCH BILL IN TỪ 2 LẦN TRỞ LÊN */}
+                    {/* ======================================================== */}
+                    {stats.duplicateRxCount > 0 ? (
+                        <div className="bg-gradient-to-br from-red-500/10 via-orange-500/10 to-amber-500/10 border-2 border-red-400 rounded-2xl p-4 sm:p-6 shadow-md animate-fadeIn">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-red-200 pb-3 mb-4">
+                                <div className="flex items-center gap-2.5">
+                                    <span className="text-2xl animate-pulse">🚨</span>
+                                    <div>
+                                        <h3 className="font-black text-red-900 text-base sm:text-lg">
+                                            CẢNH BÁO: Phát hiện {stats.duplicateRxCount} toa thuốc được in nhiều lần ({stats.duplicateAttemptsCount} lượt in trùng)
+                                        </h3>
+                                        <p className="text-xs text-red-700 mt-0.5 font-medium">
+                                            Admin vui lòng rà soát thời gian và số lần in để tránh nhân viên thu nhầm tiền hoặc bệnh nhân xin in lại nhiều bill.
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="bg-red-600 text-white text-xs font-extrabold px-3 py-1.5 rounded-full shadow-xs self-start sm:self-auto">
+                                    CẦN ĐỐI CHIẾU
+                                </span>
+                            </div>
+
+                            {/* Grid các bill bị in nhiều lần */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {duplicateGroups.map((group) => {
+                                    const rxNo = group.prescriptionNo;
+                                    const branchName = group.branch === 'thot-not' ? 'Thốt Nốt' : 'Ngã Bảy';
+                                    const firstPrint = group.prints[0];
+                                    const latestPrint = group.prints[group.prints.length - 1];
+                                    const priceNum = parseFloat(firstPrint.price || 0);
+                                    const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
+
+                                    return (
+                                        <div 
+                                            key={group.key}
+                                            className="bg-white rounded-xl border-2 border-red-300 p-4 shadow-sm hover:shadow-md transition space-y-3"
+                                        >
+                                            {/* Header card bill trùng */}
+                                            <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="bg-red-600 text-white text-xs font-black px-2.5 py-0.5 rounded-md shadow-2xs">
+                                                        ⚠️ ĐÃ IN {group.prints.length} LẦN
+                                                    </span>
+                                                    <span className="font-black text-gray-900 text-base">Toa #{rxNo}</span>
+                                                    <span className="text-[11px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-semibold">
+                                                        🏥 {branchName}
+                                                    </span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-black text-blue-700 text-sm sm:text-base">{firstPrint.price}k</div>
+                                                    <div className="text-[10px] text-gray-400 font-semibold">{amountStr}</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Thông tin bệnh nhân & hình thức thanh toán */}
+                                            <div className="flex items-center justify-between text-xs">
+                                                <div className="font-bold text-gray-800 flex items-center gap-1.5 truncate">
+                                                    <span>👤 Bé:</span>
+                                                    <span className="text-blue-900 font-extrabold">
+                                                        {firstPrint.name || <span className="text-gray-400 italic font-normal">Không ghi tên</span>}
+                                                    </span>
+                                                </div>
+                                                <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                                                    firstPrint.paymentMethod === 'transfer' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'
+                                                }`}>
+                                                    {firstPrint.paymentMethod === 'transfer' ? '💳 Chuyển khoản' : '💵 Tiền mặt'}
+                                                </span>
+                                            </div>
+
+                                            {/* Chi tiết từng lần in */}
+                                            <div className="bg-amber-50/80 rounded-lg p-2.5 border border-amber-200/80 space-y-2">
+                                                <div className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
+                                                    <span>🕒 Lịch sử các lần bấm in bill:</span>
+                                                </div>
+                                                {group.prints.map((p, idx) => {
+                                                    let diffText = '';
+                                                    if (idx > 0) {
+                                                        const prev = group.prints[idx - 1];
+                                                        const tA = p.timestamp || (p.printedAt ? new Date(p.printedAt).getTime() : 0);
+                                                        const tB = prev.timestamp || (prev.printedAt ? new Date(prev.printedAt).getTime() : 0);
+                                                        if (tA && tB) {
+                                                            diffText = getTimeDiffText(tB, tA);
+                                                        }
+                                                    }
+
+                                                    return (
+                                                        <div 
+                                                            key={p.id || idx}
+                                                            className="flex flex-wrap items-center justify-between bg-white px-2.5 py-1.5 rounded-md border border-amber-200 text-xs text-gray-700 gap-1.5"
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-black flex items-center justify-center text-[10px]">
+                                                                    {idx + 1}
+                                                                </span>
+                                                                <span className="font-extrabold text-gray-900">
+                                                                    {p.printedTime || (p.printedAt ? p.printedAt.substring(11, 19) : '---')}
+                                                                </span>
+                                                                <span className="text-[11px] text-gray-500 font-semibold">
+                                                                    ({p.paperSize || '80mm'})
+                                                                </span>
+                                                                {diffText && (
+                                                                    <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                                                                        +sau {diffText}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 ml-auto">
+                                                                {p.note && (
+                                                                    <span className="text-[10px] text-gray-500 italic max-w-[130px] truncate" title={p.note}>
+                                                                        📝 "{p.note}"
+                                                                    </span>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBillToReprint(p)}
+                                                                    className="text-blue-600 hover:text-blue-800 font-bold text-[11px] hover:underline"
+                                                                >
+                                                                    Xem bill
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* Action button */}
+                                            <div className="flex justify-end pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setBillToReprint(latestPrint)}
+                                                    className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition flex items-center gap-1 border border-blue-200"
+                                                >
+                                                    <span>🖨️ Xem / In lại bill này</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-800 text-xs sm:text-sm font-semibold flex items-center gap-2.5">
+                            <span className="text-xl">✅</span>
+                            <div>
+                                <span className="font-bold">Trạng thái in bill hoàn hảo:</span> Không có bill nào bị in từ 2 lần trở lên trong ngày hôm nay. Mỗi toa khám đều chỉ in 1 lần duy nhất.
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Đối chiếu toa khám trong sổ bệnh chưa in bill nhiệt */}
+                    {stats.unprintedRx.length > 0 && (
+                        <div className="bg-amber-50/70 border border-amber-300 rounded-2xl p-4 text-amber-900">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg">ℹ️</span>
+                                    <span className="text-xs sm:text-sm font-extrabold">
+                                        Đối chiếu sổ khám: Có {stats.unprintedRx.length} toa đã ghi nhận nhưng chưa in bill nhiệt
+                                    </span>
+                                </div>
+                                <span className="text-xs font-bold text-amber-700 bg-amber-200/60 px-2 py-0.5 rounded-full">
+                                    Chưa bấm in
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {stats.unprintedRx.map((p, idx) => (
+                                    <span 
+                                        key={idx}
+                                        className="bg-white text-gray-800 border border-amber-300 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs"
+                                    >
+                                        <span className="text-blue-700">#{p.prescriptionNo || '---'}</span>
+                                        {p.name ? <span>({p.name})</span> : null}
+                                        <span className="text-emerald-700 font-extrabold">{p.price}k</span>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ======================================================== */}
+                    {/* BẢNG KÊ CHI TIẾT TẤT CẢ LƯỢT IN TRONG NGÀY */}
+                    {/* ======================================================== */}
+                    <div className="bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden">
+                        {/* Header bảng & Bộ lọc tabs */}
+                        <div className="p-4 sm:p-5 border-b border-gray-200 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <h3 className="text-base sm:text-lg font-black text-gray-900 flex items-center gap-2">
+                                        <span>📜</span>
+                                        <span>Bảng Kê Chi Tiết Từng Lượt In Bill Ngày {formattedDateVi}</span>
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                        Tất cả các lệnh in giấy nhiệt gửi tới máy in được lưu trữ vĩnh viễn theo thứ tự thời gian.
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 self-start sm:self-auto">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSortAsc(!sortAsc)}
+                                        className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-700 transition flex items-center gap-1"
+                                    >
+                                        <span>{sortAsc ? '⬆️ Cũ nhất trước' : '⬇️ Mới nhất trước'}</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Toolbar lọc và tìm kiếm */}
+                            <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between pt-1">
+                                {/* Tabs */}
+                                <div className="flex bg-gray-100 p-0.5 rounded-xl text-xs font-bold overflow-x-auto">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterTab('all')}
+                                        className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                            filterTab === 'all'
+                                                ? 'bg-white text-blue-700 shadow-2xs font-extrabold'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        Tất cả ({logs.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterTab('duplicates')}
+                                        className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1 ${
+                                            filterTab === 'duplicates'
+                                                ? 'bg-red-600 text-white shadow-2xs font-extrabold'
+                                                : 'text-red-700 hover:text-red-900'
+                                        }`}
+                                    >
+                                        <span>⚠️ In nhiều lần</span>
+                                        <span>({logs.filter(l => l.isDuplicate).length})</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterTab('cash')}
+                                        className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                            filterTab === 'cash'
+                                                ? 'bg-emerald-600 text-white shadow-2xs font-extrabold'
+                                                : 'text-emerald-700 hover:text-emerald-900'
+                                        }`}
+                                    >
+                                        💵 Tiền mặt ({stats.totalCashPrints})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterTab('transfer')}
+                                        className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                                            filterTab === 'transfer'
+                                                ? 'bg-purple-600 text-white shadow-2xs font-extrabold'
+                                                : 'text-purple-700 hover:text-purple-900'
+                                        }`}
+                                    >
+                                        💳 Chuyển khoản ({stats.totalTransferPrints})
+                                    </button>
+                                </div>
+
+                                {/* Ô tìm kiếm */}
+                                <div className="relative min-w-[200px] sm:min-w-[260px]">
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        placeholder="Tìm theo số toa, tên bé, số tiền..."
+                                        className="w-full text-xs py-2 pl-8 pr-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                    />
+                                    <span className="absolute left-2.5 top-2.5 text-xs text-gray-400">🔍</span>
+                                    {searchTerm && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchTerm('')}
+                                            className="absolute right-2.5 top-2 text-xs text-gray-400 hover:text-gray-600"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Danh sách bản ghi in */}
+                        {loading ? (
+                            <div className="py-16 text-center text-gray-500">
+                                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                                <p className="text-sm font-semibold">Đang tải lịch sử in bill từ Firebase...</p>
+                            </div>
+                        ) : filteredLogs.length === 0 ? (
+                            <div className="py-16 text-center px-4">
+                                <div className="text-5xl mb-3">📭</div>
+                                <h4 className="font-extrabold text-gray-800 text-base mb-1">
+                                    Không tìm thấy lượt in bill nào
+                                </h4>
+                                <p className="text-xs text-gray-500 max-w-md mx-auto">
+                                    {searchTerm || filterTab !== 'all'
+                                        ? 'Không có kết quả phù hợp với bộ lọc hiện tại. Thử đổi tiêu chí tìm kiếm.'
+                                        : `Chưa có lượt in bill nào được ghi nhận cho ngày ${formattedDateVi}. Khi nhân viên tại quầy bấm "In Bill" hoặc "Lưu & In", lượt in sẽ xuất hiện tại đây theo thời gian thực.`}
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Phiên bản Desktop Table */}
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                                        <thead>
+                                            <tr className="bg-gray-50 text-gray-700 font-extrabold text-xs uppercase tracking-wider border-b border-gray-200">
+                                                <th className="py-3 px-3 text-center w-12">#</th>
+                                                <th className="py-3 px-3">Thời gian in</th>
+                                                <th className="py-3 px-3">Chi nhánh</th>
+                                                <th className="py-3 px-3">Số toa</th>
+                                                <th className="py-3 px-3">Bệnh nhân</th>
+                                                <th className="py-3 px-3 text-right">Số tiền</th>
+                                                <th className="py-3 px-3 text-center">Thanh toán</th>
+                                                <th className="py-3 px-3 text-center">Khổ giấy</th>
+                                                <th className="py-3 px-3">Ghi chú / Lời dặn</th>
+                                                <th className="py-3 px-3 text-center w-24">Thao tác</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {filteredLogs.map((log, index) => {
+                                                const priceNum = parseFloat(log.price || 0);
+                                                const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
+
+                                                return (
+                                                    <tr 
+                                                        key={log.id || index}
+                                                        className={`hover:bg-blue-50/50 transition ${
+                                                            log.isDuplicate ? 'bg-red-50/40' : index % 2 === 1 ? 'bg-gray-50/40' : 'bg-white'
+                                                        }`}
+                                                    >
+                                                        {/* STT */}
+                                                        <td className="py-3 px-3 text-center font-bold text-gray-400">
+                                                            {index + 1}
+                                                        </td>
+
+                                                        {/* Giờ in */}
+                                                        <td className="py-3 px-3 font-mono font-bold text-gray-900 whitespace-nowrap">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-gray-400">🕒</span>
+                                                                <span>{log.printedTime || (log.printedAt ? log.printedAt.substring(11, 19) : '---')}</span>
+                                                            </div>
+                                                        </td>
+
+                                                        {/* Chi nhánh */}
+                                                        <td className="py-3 px-3 whitespace-nowrap">
+                                                            <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-semibold">
+                                                                {log.branch === 'thot-not' ? 'Thốt Nốt' : 'Ngã Bảy'}
+                                                            </span>
+                                                        </td>
+
+                                                        {/* Số toa + Cảnh báo in nhiều lần */}
+                                                        <td className="py-3 px-3 whitespace-nowrap">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-black text-gray-900 text-sm">
+                                                                    #{log.prescriptionNo || '---'}
+                                                                </span>
+                                                                {log.isDuplicate ? (
+                                                                    <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded shadow-2xs animate-pulse" title={`Toa này được in tổng cộng ${log.totalPrints} lần`}>
+                                                                        ⚠️ In lần {log.printIndex}/{log.totalPrints}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.2 rounded">
+                                                                        Lần 1
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+
+                                                        {/* Bệnh nhân */}
+                                                        <td className="py-3 px-3 font-semibold text-gray-800">
+                                                            {log.name ? (
+                                                                <span>{log.name}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400 italic text-xs">Không ghi tên</span>
+                                                            )}
+                                                        </td>
+
+                                                        {/* Số tiền */}
+                                                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                                                            <div className="font-black text-blue-700 text-sm">{log.price}k</div>
+                                                            <div className="text-[10px] text-gray-400 font-semibold">{amountStr}</div>
+                                                        </td>
+
+                                                        {/* Hình thức thanh toán */}
+                                                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                                                            <span className={`px-2 py-0.5 rounded-full font-bold text-xs ${
+                                                                log.paymentMethod === 'transfer'
+                                                                    ? 'bg-purple-100 text-purple-700'
+                                                                    : 'bg-emerald-100 text-emerald-700'
+                                                            }`}>
+                                                                {log.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}
+                                                            </span>
+                                                        </td>
+
+                                                        {/* Khổ giấy */}
+                                                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                                                            <span className="text-[11px] font-mono font-bold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
+                                                                {log.paperSize || '80mm'}
+                                                            </span>
+                                                        </td>
+
+                                                        {/* Lời dặn */}
+                                                        <td className="py-3 px-3 text-gray-600 text-xs italic max-w-xs truncate" title={log.note || ''}>
+                                                            {log.note ? log.note : <span className="text-gray-300">---</span>}
+                                                        </td>
+
+                                                        {/* Thao tác */}
+                                                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                                                            <div className="flex items-center justify-center gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBillToReprint(log)}
+                                                                    className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition"
+                                                                    title="Xem lại và in lại bill này"
+                                                                >
+                                                                    🖨️
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDeleteLog(log)}
+                                                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                                                    title="Xóa log in này"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Phiên bản Mobile Cards */}
+                                <div className="block md:hidden divide-y divide-gray-100 p-3 space-y-3">
+                                    {filteredLogs.map((log, index) => {
+                                        const priceNum = parseFloat(log.price || 0);
+                                        const amountStr = priceNum === 0 ? '0 đ' : (priceNum * 1000).toLocaleString('vi-VN') + ' đ';
+
+                                        return (
+                                            <div 
+                                                key={log.id || index}
+                                                className={`p-3 rounded-xl border space-y-2 ${
+                                                    log.isDuplicate ? 'bg-red-50/50 border-red-200' : 'bg-white border-gray-200'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-black text-gray-900 text-base">#{log.prescriptionNo || '---'}</span>
+                                                        {log.isDuplicate && (
+                                                            <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded">
+                                                                ⚠️ Lần {log.printIndex}/{log.totalPrints}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="font-black text-blue-700 text-base">{log.price}k</span>
+                                                        <span className="text-xs text-gray-400 ml-1">({amountStr})</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-xs text-gray-700">
+                                                    <div className="truncate font-semibold">
+                                                        👤 {log.name || <span className="text-gray-400 italic">Không tên</span>}
+                                                    </div>
+                                                    <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                                        log.paymentMethod === 'transfer' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'
+                                                    }`}>
+                                                        {log.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span>🕒 {log.printedTime}</span>
+                                                        <span>•</span>
+                                                        <span>{log.branch === 'thot-not' ? 'Thốt Nốt' : 'Ngã Bảy'}</span>
+                                                        <span>•</span>
+                                                        <span>{log.paperSize || '80mm'}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setBillToReprint(log)}
+                                                            className="text-blue-600 font-bold hover:underline"
+                                                        >
+                                                            Xem bill
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteLog(log)}
+                                                            className="text-red-500 text-xs"
+                                                        >
+                                                            Xóa
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Modal Xem lại & In lại bill nếu Admin bấm vào bất kỳ bill nào */}
+                    {billToReprint && (
+                        <BillPrintModal
+                            bill={billToReprint}
+                            onClose={() => setBillToReprint(null)}
+                        />
+                    )}
                 </div>
             );
         }

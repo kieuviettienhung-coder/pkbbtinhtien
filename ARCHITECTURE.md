@@ -62,6 +62,12 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
     - **Hình thức thanh toán:** Nút bấm trực quan `💵 TM` (mặc định) và `💳 CK`.
     - **Phím tắt Enter:** Nhấn Enter ở ô giá hoặc ô tên sẽ tự động thêm toa mới và focus con trỏ chuột vào dòng kế tiếp, giúp gõ liên tục bằng bàn phím siêu nhanh.
     - **Nút thêm nhanh:** Hỗ trợ nút `➕ Thêm toa khám` và `⚡ +5 toa` liên tiếp.
+    - **Sắp xếp theo STT linh hoạt & Tự nhiên:**
+      - Hàm so sánh tự nhiên `comparePrescriptionStt`: sắp xếp chuẩn xác theo số tự nhiên (1, 2, 3... 10, 20...) thay vì sắp xếp dạng chữ thuần túy (1, 10, 2).
+      - **Nút `🔢 Sắp xếp theo STT`:** Nằm ngay trên thanh công cụ đầu bảng, cho phép 1-click sắp xếp lại toàn bộ danh sách toa theo thứ tự STT tăng dần và lưu vĩnh viễn vào Firebase.
+      - **Bộ chọn chiều sắp xếp nhanh:** Chuyển đổi linh hoạt giữa `🔢 STT ↑ (1→N)`, `🔢 STT ↓ (N→1)` và `⏱️ Mới nhập`.
+      - **Click tiêu đề cột `STT Toa`:** Cho phép click trực tiếp vào header của bảng để đảo chiều tăng dần/giảm dần nhanh chóng.
+      - Hỗ trợ hiển thị sắp xếp đồng bộ trên cả giao diện Bảng (Desktop) và giao diện Thẻ rút gọn (Mobile Card view).
     - **Bộ lọc & Tìm kiếm:** Lọc theo `Tất cả`, `💵 Tiền mặt`, `💳 Chuyển khoản`, `0đ` và tìm kiếm nhanh theo số toa / tên bé.
     - **Xem phân bổ mức giá:** Nút `📊 Xem mức giá` mở rộng bảng thống kê số ca theo từng mức giá để đối chiếu kế toán.
 - **Tương thích ngược 100% (Bidirectional Backward Compatibility):**

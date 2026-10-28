@@ -4300,6 +4300,30 @@
             );
         }
 
+        // Helper so sánh và sắp xếp STT toa thuốc theo thứ tự tự nhiên (1, 2, 3... 10, 15, ...)
+        function comparePrescriptionStt(a, b, asc = true) {
+            const rawA = a && a.prescriptionNo ? String(a.prescriptionNo).trim() : '';
+            const rawB = b && b.prescriptionNo ? String(b.prescriptionNo).trim() : '';
+
+            if (!rawA && !rawB) return 0;
+            if (!rawA) return 1;
+            if (!rawB) return -1;
+
+            const numA = parseFloat(rawA);
+            const numB = parseFloat(rawB);
+            const isNumA = !isNaN(numA) && /^\d+(\.\d+)?$/.test(rawA);
+            const isNumB = !isNaN(numB) && /^\d+(\.\d+)?$/.test(rawB);
+
+            let diff = 0;
+            if (isNumA && isNumB) {
+                diff = numA - numB;
+            } else {
+                diff = rawA.localeCompare(rawB, 'vi', { numeric: true, sensitivity: 'base' });
+            }
+
+            return asc ? diff : -diff;
+        }
+
         // Unified Direct Prescription Input Section (Tiền khám bệnh - Nhập toa ở trên, lưu xuống danh sách phía dưới)
         function ExaminationSection({ 
             examinations = {}, 
@@ -4342,6 +4366,8 @@
             const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
             const [highlightedRowId, setHighlightedRowId] = useState(null);
             const [billToPrint, setBillToPrint] = useState(null);
+            const [sortMode, setSortMode] = useState('stt_asc'); // 'stt_asc' (1->N) | 'stt_desc' (N->1) | 'entry' (mới nhập)
+            const [sortSuccessMessage, setSortSuccessMessage] = useState('');
 
             // Đồng bộ dữ liệu mỗi khi props thay đổi từ Firebase
             useEffect(() => {
@@ -4506,6 +4532,19 @@
                 }
             };
 
+            // Sắp xếp và lưu toàn bộ danh sách toa theo STT tăng dần vào cơ sở dữ liệu
+            const handleSortAndSaveByStt = () => {
+                if (!localPrescriptions || localPrescriptions.length === 0) {
+                    alert('Chưa có toa khám nào để sắp xếp!');
+                    return;
+                }
+                const sorted = [...localPrescriptions].sort((a, b) => comparePrescriptionStt(a, b, true));
+                commitPrescriptions(sorted);
+                setSortMode('stt_asc');
+                setSortSuccessMessage('Đã sắp xếp danh sách theo STT (1→N)!');
+                setTimeout(() => setSortSuccessMessage(''), 3000);
+            };
+
             // Mở form thêm toa mới
             const handleAddRow = (customStt = null) => {
                 setIsAddingNew(true);
@@ -4618,9 +4657,9 @@
                 return localPrescriptions.some(p => String(p.prescriptionNo || '').trim() === raw);
             }, [newStt, localPrescriptions]);
 
-            // Danh sách sau khi lọc và tìm kiếm
+            // Danh sách sau khi lọc, tìm kiếm và sắp xếp
             const filteredPrescriptions = useMemo(() => {
-                return localPrescriptions.filter(p => {
+                let list = localPrescriptions.filter(p => {
                     if (paymentFilter === 'transfer' && p.paymentMethod !== 'transfer') return false;
                     if (paymentFilter === 'cash' && p.paymentMethod === 'transfer') return false;
                     if (paymentFilter === 'zero') {
@@ -4638,7 +4677,15 @@
 
                     return true;
                 });
-            }, [localPrescriptions, paymentFilter, searchTerm]);
+
+                if (sortMode === 'stt_asc') {
+                    list.sort((a, b) => comparePrescriptionStt(a, b, true));
+                } else if (sortMode === 'stt_desc') {
+                    list.sort((a, b) => comparePrescriptionStt(a, b, false));
+                }
+
+                return list;
+            }, [localPrescriptions, paymentFilter, searchTerm, sortMode]);
 
             return (
                 <div className="bg-white rounded-2xl shadow-md p-3 sm:p-5 border border-gray-100">
@@ -4679,6 +4726,23 @@
                             >
                                 📊 {showPriceBreakdown ? 'Ẩn mức giá' : 'Mức giá'}
                             </button>
+                            {!readOnly && (
+                                <button
+                                    type="button"
+                                    onClick={handleSortAndSaveByStt}
+                                    className="text-xs px-2.5 py-1 rounded-xl font-bold border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition shadow-2xs flex items-center gap-1 active:scale-95"
+                                    title="Sắp xếp và lưu vĩnh viễn toàn bộ toa theo thứ tự STT (1, 2, 3...)"
+                                >
+                                    <span>🔢</span>
+                                    <span>Sắp xếp theo STT</span>
+                                </button>
+                            )}
+                            {sortSuccessMessage && (
+                                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-lg animate-fadeIn flex items-center gap-1">
+                                    <span>✅</span>
+                                    <span>{sortSuccessMessage}</span>
+                                </span>
+                            )}
                         </div>
 
                         {!readOnly && (
@@ -4915,10 +4979,10 @@
                         </div>
                     )}
 
-                    {/* Filter and Search Bar */}
-                    <div className="flex flex-col sm:flex-row gap-2 justify-between items-stretch sm:items-center py-1.5">
+                    {/* Filter, Sort and Search Bar */}
+                    <div className="flex flex-col lg:flex-row gap-2 justify-between items-stretch lg:items-center py-1.5 flex-wrap">
                         {/* Filter Tabs */}
-                        <div className="flex bg-gray-100 p-0.5 rounded-lg text-xs font-semibold overflow-x-auto">
+                        <div className="flex bg-gray-100 p-0.5 rounded-lg text-xs font-semibold overflow-x-auto shrink-0">
                             <button
                                 type="button"
                                 onClick={() => setPaymentFilter('all')}
@@ -4959,25 +5023,69 @@
                             )}
                         </div>
 
-                        {/* Search Input */}
-                        <div className="relative w-full sm:w-56">
-                            <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="🔍 Tìm số toa, tên bé..."
-                                className="w-full text-xs px-2.5 py-1 pl-7 border border-gray-300 rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition"
-                            />
-                            <span className="absolute left-2 top-1.5 text-gray-400 text-xs">🔍</span>
-                            {searchTerm && (
+                        {/* Sort Selector & Search Input */}
+                        <div className="flex items-center gap-2 flex-1 justify-end flex-wrap sm:flex-nowrap">
+                            {/* Sort Mode Buttons */}
+                            <div className="flex bg-gray-100 p-0.5 rounded-lg text-xs font-semibold items-center overflow-x-auto">
+                                <span className="text-gray-500 px-1.5 text-[11px] font-bold hidden sm:inline">Xếp:</span>
                                 <button
                                     type="button"
-                                    onClick={() => setSearchTerm('')}
-                                    className="absolute right-1.5 top-1 text-gray-400 hover:text-gray-600 text-xs w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-200"
+                                    onClick={() => setSortMode('stt_asc')}
+                                    className={`px-2 py-1 rounded-md transition whitespace-nowrap flex items-center gap-0.5 ${
+                                        sortMode === 'stt_asc'
+                                            ? 'bg-blue-600 text-white shadow-2xs font-extrabold'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title="Sắp xếp theo STT tăng dần (Toa 1, 2, 3...)"
                                 >
-                                    ✕
+                                    <span>🔢 STT ↑ (1→N)</span>
                                 </button>
-                            )}
+                                <button
+                                    type="button"
+                                    onClick={() => setSortMode('stt_desc')}
+                                    className={`px-2 py-1 rounded-md transition whitespace-nowrap flex items-center gap-0.5 ${
+                                        sortMode === 'stt_desc'
+                                            ? 'bg-blue-600 text-white shadow-2xs font-extrabold'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title="Sắp xếp theo STT giảm dần (Toa N...3, 2, 1)"
+                                >
+                                    <span>🔢 STT ↓ (N→1)</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSortMode('entry')}
+                                    className={`px-2 py-1 rounded-md transition whitespace-nowrap flex items-center gap-0.5 ${
+                                        sortMode === 'entry'
+                                            ? 'bg-blue-600 text-white shadow-2xs font-extrabold'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title="Hiển thị theo thứ tự vừa nhập"
+                                >
+                                    <span>⏱️ Mới nhập</span>
+                                </button>
+                            </div>
+
+                            {/* Search Input */}
+                            <div className="relative w-full sm:w-48 shrink-0">
+                                <input
+                                    type="text"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    placeholder="🔍 Tìm số toa, tên bé..."
+                                    className="w-full text-xs py-1.5 pl-7 pr-6 border border-gray-300 rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition"
+                                />
+                                <span className="absolute left-2 top-2 text-gray-400 text-xs">🔍</span>
+                                {searchTerm && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSearchTerm('')}
+                                        className="absolute right-1.5 top-1.5 text-gray-400 hover:text-gray-600 text-xs w-4 h-4 flex items-center justify-center rounded-full hover:bg-gray-200"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -5206,7 +5314,18 @@
                                 <table className="w-full text-left text-xs sm:text-sm border-collapse min-w-[500px]">
                                     <thead>
                                         <tr className="bg-gray-100/90 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
-                                            <th className="py-2 px-2 w-20 sm:w-24 text-center">STT Toa</th>
+                                            <th 
+                                                onClick={() => setSortMode(prev => prev === 'stt_asc' ? 'stt_desc' : 'stt_asc')}
+                                                className="py-2 px-2 w-20 sm:w-28 text-center cursor-pointer select-none hover:bg-gray-200 transition"
+                                                title="Bấm để đổi sắp xếp: STT tăng dần ↔ STT giảm dần"
+                                            >
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <span>STT Toa</span>
+                                                    <span className="text-blue-700 font-extrabold text-[11px]">
+                                                        {sortMode === 'stt_asc' ? '🔼 (1→N)' : sortMode === 'stt_desc' ? '🔽 (N→1)' : '↕️'}
+                                                    </span>
+                                                </div>
+                                            </th>
                                             <th className="py-2 px-3">Tên bé / Bệnh nhân</th>
                                             <th className="py-2 px-3 w-32 sm:w-36">Tiền khám (k)</th>
                                             <th className="py-2 px-2 w-28 text-center">Hình thức</th>

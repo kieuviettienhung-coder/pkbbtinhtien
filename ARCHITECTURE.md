@@ -159,10 +159,11 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 - Hỗ trợ in hóa đơn tính tiền nhiệt trực tiếp từ điện thoại Android và Laptop cho máy in nhiệt (khổ 80mm và 58mm).
 - **Cơ chế in Tiếng Việt có dấu 100% không phụ thuộc ROM máy in (`html2canvas` + RawBT Graphic Mode):**
   - Các dòng máy in nhiệt Trung Quốc/nội địa (Xprinter, Zywell...) thường có ROM firmware tiếng Anh/Trung, không chứa font Unicode tiếng Việt có dấu. Khi gửi chuỗi văn bản UTF-8, máy in sẽ in ra các ký tự `?` hoặc ký tự rác.
-  - Giải pháp tối ưu: Tích hợp thư viện `html2canvas` để tự động render phần tử hóa đơn DOM thành ảnh PNG sắc nét (màu đen `#000000` trên nền trắng `#ffffff`, không dính bóng mờ hay viền xám).
+  - Giải pháp tối ưu: Tích hợp thư viện `html2canvas` để tự động render hóa đơn thành ảnh PNG sắc nét (màu đen `#000000` trên nền trắng `#ffffff`, không dính bóng mờ hay viền xám).
+  - **Khắc phục lỗi bill bị cắt ngắn khi xem trên điện thoại:** Trên điện thoại, khung xem trước (preview modal) có chiều cao giới hạn `max-h-[44vh]` kèm thanh cuộn. Nếu chụp trực tiếp khung này, ảnh sẽ bị cắt ngang lưng chừng. Mã nguồn đã được tối ưu: khi bấm in, hệ thống tự động sinh một container tạm thời độc lập đính vào `document.body` với chiều rộng chuẩn xác (`576px` cho K80 hoặc `384px` cho K58), không bị khống chế chiều cao (`height: auto; max-height: none`), và chụp toàn bộ 100% chiều dài tờ bill với tỉ lệ `scale: 1` (khớp 1:1 điểm in nhiệt, chống tràn bộ đệm máy in).
   - Sau đó gọi `rawbt:data:image/png;base64,...` sang ứng dụng **RawBT Print Service** trên Android. RawBT in hóa đơn dưới dạng đồ họa raster (`GS v 0`), cho ra bản in có dấu sắc nét 100%, in đậm, định dạng căn chỉnh chuẩn xác và không bao giờ lỗi font.
-- **Lề dưới chống cắt cụt bill (Bottom Padding 90px / ~28mm):**
-  - Đầu in nhiệt và dao cắt/thanh xé của máy in cách nhau khoảng 2.5 - 3cm. Mã nguồn bổ sung lề dưới `padding-bottom: 90px` (và 8 dòng trống trong chế độ text) đảm bảo giấy luôn được đẩy qua dao cắt hoàn toàn trước khi cắt, không làm mất chữ "Cảm ơn Quý khách & Hẹn gặp lại!".
+- **Lề dưới chống cắt cụt bill (Bottom Padding 200px / ~2.5cm):**
+  - Đầu in nhiệt và dao cắt/thanh xé của máy in cách nhau khoảng 2.5 - 3cm. Mã nguồn bổ sung lề dưới `padding-bottom: 200px` (và 8 dòng trống trong chế độ text) đảm bảo giấy luôn được đẩy qua dao cắt hoàn toàn trước khi cắt, không làm mất chữ "Cảm ơn Quý khách & Hẹn gặp lại!".
 - **Các phương thức in linh hoạt:**
   - `⚡ In Có Dấu (RawBT)`: Tự động chụp ảnh bill sắc nét có dấu 100% gửi sang app RawBT.
   - `🖨️ In thường (Có dấu)`: Sử dụng thẻ portal `#thermal-print-portal` độc lập trong `@media print` để mở hộp thoại in mặc định của hệ thống với font chữ vector chuẩn.

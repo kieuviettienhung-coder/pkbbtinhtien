@@ -212,6 +212,8 @@
                 const isNgaBay = (key === 'nga-bay') || (name && name.includes('Ngã Bảy'));
 
                 let exam = 0, examCash = 0, examTransfer = 0, cases = 0;
+                let transferPrescriptions = [];
+
                 const rxList = toArray(data.prescriptions);
                 if (rxList.length > 0) {
                     rxList.forEach(p => {
@@ -221,6 +223,7 @@
                         cases++;
                         if (p.paymentMethod === 'transfer') {
                             examTransfer += price;
+                            if (p.prescriptionNo) transferPrescriptions.push(`Toa ${escapeMd(p.prescriptionNo)}`);
                         } else {
                             examCash += price;
                         }
@@ -238,12 +241,15 @@
                             ptArr.forEach(pt => {
                                 if (pt && pt.paymentMethod === 'transfer') {
                                     examTransfer += parseFloat(p || 0);
+                                    if (pt.prescriptionNo) transferPrescriptions.push(`Toa ${escapeMd(pt.prescriptionNo)}`);
                                 }
                             });
                         });
                     }
                     examCash = exam - examTransfer;
                 }
+
+                transferPrescriptions.sort((a,b) => (parseInt(a.replace(/\D/g, '') || 0)) - (parseInt(b.replace(/\D/g, '') || 0)));
 
                 let doctor = 0, expense = 0, medicine = 0;
                 const docList = toArray(data.doctorFees);
@@ -255,19 +261,23 @@
                 const medList = toArray(data.medicines);
                 medList.forEach(m => medicine += parseFloat(m.quantity || 0) * parseFloat(m.price || 0));
 
-                // Chuyển tiền thuốc:
-                // Ngã Bảy chuyển nộp tiền thuốc về Thốt Nốt (-medicine tại NB)
-                // Thốt Nốt nhận tiền thuốc từ Ngã Bảy (+transferredFromNB tại TN)
+                // Thuốc nội bộ giữa 2 chi nhánh:
+                // - Ngã Bảy: trừ tiền nhập thuốc từ Thốt Nốt (-medicine)
+                // - Thốt Nốt: được hưởng tiền từ bán thuốc cho Ngã Bảy (+transferredFromNB) trên sổ sách tính cuối tháng
                 const transferredFromNB = isThotNot ? ngaBayMedicine : 0;
                 
-                // Còn lại (Net)
-                let net = 0, netCash = 0, netTransfer = examTransfer;
+                // Còn lại:
+                // Tiền bán thuốc cho Ngã Bảy KHÔNG tính là tiền mặt trong ngày của Thốt Nốt (chỉ là sổ sách cuối tháng)
+                let netCash = 0, netTransfer = examTransfer;
+                let net = 0;
+
                 if (isNgaBay) {
                     net = exam - doctor - expense - medicine;
                     netCash = examCash - doctor - expense - medicine;
                 } else if (isThotNot) {
+                    // Thốt Nốt: Tiền mặt trong ngày chỉ tính thu chi thực tế tại Thốt Nốt (không tính tiền bán thuốc cho NB)
+                    netCash = examCash - doctor - expense - medicine;
                     net = (exam - doctor - expense - medicine) + transferredFromNB;
-                    netCash = (examCash - doctor - expense - medicine) + transferredFromNB;
                 } else {
                     net = exam - doctor - expense;
                     netCash = examCash - doctor - expense;
@@ -275,27 +285,34 @@
 
                 msg += `\n${name}\n`;
                 msg += `💰 Tiền khám: *${fmt(exam)}* (${cases} ca)\n`;
-                msg += `   💵 Tiền mặt: ${fmt(examCash)} | 💳 Chuyển khoản: ${fmt(examTransfer)}\n`;
 
-                if (isNgaBay && medicine > 0) {
-                    msg += `💊 Tiền nhập thuốc từ Thốt Nốt: -${fmt(medicine)}\n`;
-                }
-
-                if (isThotNot) {
-                    if (transferredFromNB > 0) {
-                        msg += `📦 Tiền bán thuốc cho Ngã Bảy: +${fmt(transferredFromNB)}\n`;
-                    }
-                    if (medicine > 0) {
-                        msg += `💊 Tiền thuốc tại quầy Thốt Nốt: +${fmt(medicine)}\n`;
-                    }
-                }
+                // Phần chuyển khoản không ghi tên bệnh nhân
+                const ckNote = transferPrescriptions.length > 0 ? ` (${transferPrescriptions.join(', ')})` : '';
+                msg += `   💵 Tiền mặt: ${fmt(examCash)} | 💳 Chuyển khoản: ${fmt(examTransfer)}${ckNote}\n`;
 
                 msg += `👨‍⚕️ Lương BS: ${fmt(doctor)}\n`;
                 msg += `💸 Chi phí: ${fmt(expense)}\n`;
-                msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
-                msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
 
-                // Chi tiết bệnh nhân
+                if (isNgaBay && medicine > 0) {
+                    msg += `💊 Tiền nhập thuốc từ Thốt Nốt: -${fmt(medicine)} (sổ sách cuối tháng)\n`;
+                    msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
+                    msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
+                } else if (isThotNot) {
+                    if (medicine > 0) {
+                        msg += `💊 Tiền thuốc tại quầy Thốt Nốt: ${fmt(medicine)}\n`;
+                    }
+                    const dailyCashNet = examCash - doctor - expense - medicine;
+                    msg += `${dailyCashNet >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyCashNet)}* (💵 TM: ${fmt(dailyCashNet)}, 💳 CK: ${fmt(netTransfer)})\n`;
+                    if (transferredFromNB > 0) {
+                        msg += `📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +${fmt(transferredFromNB)}\n`;
+                        msg += `👉 Tổng gồm thuốc (sổ sách): *${fmt(net)}*\n`;
+                    }
+                } else {
+                    msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
+                    msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
+                }
+
+                // Chi tiết bệnh nhân: phần chuyển khoản không ghi tên bệnh nhân
                 let detailMsgs = [];
                 if (rxList.length > 0) {
                     const grouped = {};
@@ -308,7 +325,12 @@
                     Object.keys(grouped).sort((a,b) => parseFloat(a) - parseFloat(b)).forEach(price => {
                         const pts = grouped[price].filter(p => p.name || p.prescriptionNo);
                         if (pts.length > 0) {
-                            detailMsgs.push(`[${price}k]: ` + pts.map(p => `${escapeMd(p.name || 'Toa ' + p.prescriptionNo)} (Toa ${escapeMd(p.prescriptionNo)}${p.paymentMethod === 'transfer' ? ' - CK' : ''})`).join(', '));
+                            detailMsgs.push(`[${price}k]: ` + pts.map(p => {
+                                if (p.paymentMethod === 'transfer') {
+                                    return `Toa ${escapeMd(p.prescriptionNo)} (CK)`;
+                                }
+                                return `${escapeMd(p.name || 'Toa ' + p.prescriptionNo)} (Toa ${escapeMd(p.prescriptionNo)})`;
+                            }).join(', '));
                         }
                     });
                 } else if (data.patientDetails) {
@@ -317,7 +339,12 @@
                         if (ptArr.length > 0) {
                             const validPatients = ptArr.filter(p => p && (p.name || p.prescriptionNo));
                             if (validPatients.length > 0) {
-                                detailMsgs.push(`[${price}k]: ` + validPatients.map(p => `${escapeMd(p.name || 'Toa ' + p.prescriptionNo)} (Toa ${escapeMd(p.prescriptionNo)}${p.paymentMethod === 'transfer' ? ' - CK' : ''})`).join(', '));
+                                detailMsgs.push(`[${price}k]: ` + validPatients.map(p => {
+                                    if (p.paymentMethod === 'transfer') {
+                                        return `Toa ${escapeMd(p.prescriptionNo)} (CK)`;
+                                    }
+                                    return `${escapeMd(p.name || 'Toa ' + p.prescriptionNo)} (Toa ${escapeMd(p.prescriptionNo)})`;
+                                }).join(', '));
                             }
                         }
                     });
@@ -338,17 +365,7 @@
                     const details = expList.filter(e => e && e.description && parseFloat(e.amount) > 0).map(e => `${escapeMd(e.description)} ${fmt(parseFloat(e.amount))}`);
                     if (details.length) msg += `   ┗ Chi phí: ${details.join(', ')}\n`;
                 }
-                if (medList.length > 0) {
-                    const validMeds = medList.filter(m => m && m.name && parseFloat(m.quantity || 0) > 0);
-                    if (validMeds.length > 0) {
-                        const medDetails = validMeds.map(m => `${escapeMd(m.name)} (${m.quantity})`);
-                        if (isNgaBay) {
-                            msg += `   ┗ 💊 Thuốc nhập từ TN: ${medDetails.join(', ')}\n`;
-                        } else {
-                            msg += `   ┗ 💊 Thuốc bán: ${medDetails.join(', ')}\n`;
-                        }
-                    }
-                }
+                // Phần thuốc: không ghi từng loại thuốc theo yêu cầu của user
 
                 gExam += exam;
                 gExamCash += examCash;
@@ -368,13 +385,16 @@
                 msg += `💰 Tiền khám: *${fmt(gExam)}* (${gCases} ca)\n`;
                 msg += `   💵 Tiền mặt: ${fmt(gExamCash)} | 💳 Chuyển khoản: ${fmt(gExamTransfer)}\n`;
                 if (ngaBayMedicine > 0) {
-                    msg += `💊 Tiền thuốc: Huề (NB trả TN ${fmt(ngaBayMedicine)})\n`;
+                    msg += `💊 Tiền thuốc: Huề (NB trả TN ${fmt(ngaBayMedicine)} trên sổ sách)\n`;
                 }
                 msg += `👨‍⚕️ Lương BS: ${fmt(gDoctor)}\n`;
                 msg += `💸 Chi phí: ${fmt(gExpense)}\n`;
                 msg += '━━━━━━━━━━━━━━━━━━━━\n';
                 msg += `${gNet >= 0 ? '🏆' : '🔴'} *TỔNG CÒN LẠI: ${fmt(gNet)}*\n`;
-                msg += `   💵 Tiền mặt: *${fmt(gNetCash)}* | 💳 Chuyển khoản: *${fmt(gNetTransfer)}*\n`;
+                msg += `   💵 Tiền mặt trong ngày: *${fmt(gNetCash)}* | 💳 Chuyển khoản: *${fmt(gNetTransfer)}*\n`;
+                if (ngaBayMedicine > 0) {
+                    msg += `   📦 Tiền thuốc trên sổ sách: *${fmt(ngaBayMedicine)}*\n`;
+                }
             }
 
             const now = new Date();

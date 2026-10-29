@@ -223,11 +223,14 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - **Tách bạch 100% Tiền mặt & Chuyển khoản:** Tất cả các chỉ số (Tiền khám, Còn lại của từng chi nhánh, Tổng thu 2 chi nhánh, Tổng còn lại 2 chi nhánh) đều được bóc tách rõ ràng theo `💵 Tiền mặt` và `💳 Chuyển khoản`.
   - **Chuẩn hóa luồng tiền thuốc giữa 2 chi nhánh:**
     - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc cấp cho Ngã Bảy mang từ Thốt Nốt sang.
-    - Tại Ngã Bảy: Trừ tiền nhập thuốc từ Thốt Nốt (`💊 Tiền nhập thuốc từ Thốt Nốt: -Xk`), trích ra từ tiền khám để trả Thốt Nốt.
-    - Tại Thốt Nốt: Được hưởng tiền bán thuốc cho Ngã Bảy (`📦 Tiền bán thuốc cho Ngã Bảy: +Xk`), cộng vào nguồn thu của Thốt Nốt.
+    - Tại Ngã Bảy: Trừ tiền nhập thuốc từ Thốt Nốt (`💊 Tiền nhập thuốc từ Thốt Nốt: -Xk (sổ sách cuối tháng)`), trích ra từ tiền khám để trả Thốt Nốt.
+    - Tại Thốt Nốt: Tiền bán thuốc cho Ngã Bảy (`📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +Xk`) không tính là tiền mặt trong ngày mà là sổ sách để tính toán cuối tháng. Tiền mặt trong ngày của Thốt Nốt phản ánh đúng tiền thực thu chi trong két (`✅ Còn lại trong ngày`).
+  - **Tối ưu danh sách chi tiết:**
+    - **Phần chuyển khoản không ghi tên bệnh nhân:** Dòng chuyển khoản chỉ liệt kê danh sách số toa (VD: `💳 Chuyển khoản: 380k (Toa 16, Toa 31, Toa 46)`) để tiện đối soát ngân hàng; trong danh sách bệnh nhân, các ca chuyển khoản hiển thị `Toa X (CK)` không kèm tên bé.
+    - **Phần thuốc không ghi từng loại:** Lược bỏ toàn bộ danh sách liệt kê chi tiết từng loại thuốc, giữ cho tin nhắn ngắn gọn, trực quan và chuyên nghiệp.
   - **Tổng hợp 2 chi nhánh chuẩn xác & Cân bằng tài chính:**
-    - Tiền thuốc giữa 2 chi nhánh bù trừ nội bộ lẫn nhau (`💊 Tiền thuốc: Huề (NB trả TN Xk)`), không bị cộng trùng (double-count) vào tổng doanh thu.
-    - Dòng `🏆 TỔNG CÒN LẠI: Xk (💵 TM: Xk | 💳 CK: Xk)` cân bằng chính xác từng đồng với tổng số tiền mặt và tiền chuyển khoản thực tế của 2 chi nhánh (`netCash + netTransfer = net`).
+    - Tiền thuốc giữa 2 chi nhánh bù trừ nội bộ lẫn nhau (`💊 Tiền thuốc: Huề (NB trả TN Xk trên sổ sách)`), không bị cộng trùng vào tổng doanh thu.
+    - Dòng `🏆 TỔNG CÒN LẠI` tách bạch: `💵 Tiền mặt trong ngày` (thực tế kiểm két), `💳 Chuyển khoản`, và `📦 Tiền thuốc trên sổ sách`.
   - **Chống lỗi định dạng Markdown & Chia nhỏ tin nhắn:**
     - Tự động lọc ký tự đặc biệt (`*`, `_`, `[`, `]`) trong tên bệnh nhân, bác sĩ, chi phí để tránh lỗi cú pháp parse Markdown của Telegram.
     - Cơ chế tự động cắt nhỏ tin nhắn (chunks <= 4000 ký tự) đảm bảo gửi thành công 100% kể cả trong những ngày cao điểm có hàng trăm bệnh nhân.

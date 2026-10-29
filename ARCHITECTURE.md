@@ -211,5 +211,14 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - Hộp thoại `BillPrintModal` được cấu trúc dạng cột linh hoạt (`h-[94vh] flex flex-col`) khớp trọn vẹn màn hình điện thoại.
   - **Thanh nút bấm hành động ghim chặt ở đáy modal (Sticky Footer):** Nút chính `⚡ In Có Dấu (RawBT)` màu xanh lá siêu nổi bật, nút `🖨️ In thường` và nút `Đóng` luôn luôn hiển thị ngay trước mắt nhân viên ở chân màn hình, không bị đẩy ra ngoài vùng nhìn thấy, không cần phải cuộn chuột hay vuốt màn hình để tìm nút in.
   - **Xem trước bill vừa vặn màn hình điện thoại:** Áp dụng lớp CSS `.thermal-bill-mobile-fit` (`zoom: 0.72` trên màn hình <= 640px) giúp tờ bill to 1.5x hiển thị vừa khít chiều ngang màn hình điện thoại, không bị tràn viền hay che khuất thông tin. Trong khi đó, ảnh chụp thật gửi sang RawBT vẫn giữ nguyên 100% kích thước chuẩn 576px/384px sắc nét tuyệt đối.
+- **Tối ưu hóa kích thước và bố cục Form nhập toa trên Mobile (Chống chồng lấn Tên bé & Tiền khám):**
+  - Khắc phục triệt để hiện tượng ô "Tên bé" và "Tiền khám" bị chồng lên nhau hoặc tràn màn hình trên điện thoại do kích thước mặc định của trình duyệt (`input` intrinsic min-width ~150px kết hợp với `font-size: 16px !important`).
+  - **Bố cục 2 dòng riêng biệt trên Mobile:**
+    - **Dòng 1:** Ô `STT` thu gọn chuẩn xác (56px) + Ô `Tên bé` chiếm trọn 100% không gian còn lại (`flex-1`, rộng ~260px). Nhân viên gõ tên bé thoải mái, dễ đọc, không bị che khuất và tách biệt hoàn toàn khỏi ô tiền.
+    - **Dòng 2:** Ô `Số tiền (k)` độc lập (88px, căn phải có hậu tố `k` xanh nổi bật) + Cụm chuyển đổi `💵 TM | 💳 CK` (82px) + Nút `💾 Lưu toa` (`flex-1`) + Nút `🖨️ In` (thu gọn cho điện thoại).
+  - **Tự động hợp nhất trên Desktop (`sm:` >= 640px):** Giao diện tự động dàn thành 1 thanh hàng ngang liền mạch chuyên nghiệp.
+  - **Quy tắc CSS toàn cục & Inline styles:** Bổ sung `box-sizing: border-box;` và `input { min-width: 0; }` trong thẻ `<style>` toàn trang cùng inline style `boxSizing: 'border-box', minWidth: 0, width: '100%'` trên tất cả các ô nhập liệu, triệt tiêu hoàn toàn nguy cơ tràn vỡ flexbox trên các trình duyệt di động (iOS Safari, Android Chrome).
+  - **Thẻ Card View & Chế độ sửa:** Tên bé trong danh sách toa được tối ưu `flex-1 min-w-0 truncate` và ô tiền `shrink-0` cố định; các ô nhập trong chế độ sửa toa trên mobile đều áp dụng `minWidth: 0` chống tràn lưới.
+
 
 

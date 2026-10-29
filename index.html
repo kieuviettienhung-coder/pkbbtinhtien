@@ -382,7 +382,14 @@
                             prescriptionNo,
                             name,
                             price: priceNum,
-                            paymentMethod
+                            paymentMethod,
+                            createdBy: p && p.createdBy ? p.createdBy : '',
+                            createdAt: p && p.createdAt ? p.createdAt : '',
+                            updatedBy: p && p.updatedBy ? p.updatedBy : '',
+                            updatedAt: p && p.updatedAt ? p.updatedAt : '',
+                            printedBy: p && p.printedBy ? p.printedBy : '',
+                            lastPrintedAt: p && p.lastPrintedAt ? p.lastPrintedAt : '',
+                            printCount: p && p.printCount ? p.printCount : 0
                         });
                         usedCounts[price] = (usedCounts[price] || 0) + 1;
                     });
@@ -401,7 +408,14 @@
                         prescriptionNo: '',
                         name: '',
                         price: priceNum,
-                        paymentMethod: 'cash'
+                        paymentMethod: 'cash',
+                        createdBy: '',
+                        createdAt: '',
+                        updatedBy: '',
+                        updatedAt: '',
+                        printedBy: '',
+                        lastPrintedAt: '',
+                        printCount: 0
                     });
                 }
             });
@@ -442,7 +456,14 @@
                 patientDetails[priceKey].push({
                     prescriptionNo: hasStt ? String(p.prescriptionNo).trim() : '',
                     name: hasName ? String(p.name).trim() : '',
-                    paymentMethod: p.paymentMethod === 'transfer' ? 'transfer' : 'cash'
+                    paymentMethod: p.paymentMethod === 'transfer' ? 'transfer' : 'cash',
+                    createdBy: p.createdBy || '',
+                    createdAt: p.createdAt || '',
+                    updatedBy: p.updatedBy || '',
+                    updatedAt: p.updatedAt || '',
+                    printedBy: p.printedBy || '',
+                    lastPrintedAt: p.lastPrintedAt || '',
+                    printCount: p.printCount || 0
                 });
             });
 
@@ -481,7 +502,7 @@
                         branch: selectedBranch,
                         date: selectedDate,
                         updatedAt: new Date().toISOString(),
-                        updatedBy: userRole || 'staff'
+                        updatedBy: (user && (user.name || user.username)) || userRole || 'staff'
                     };
                     await nodeRef.update(payload);
 
@@ -508,6 +529,8 @@
             const [ngaBayMonthlyData, setNgaBayMonthlyData] = useState({});
             const [ngaBayYearlyData, setNgaBayYearlyData] = useState({});
             const [customPrices, setCustomPrices] = useState([]);
+            const [showAccountModal, setShowAccountModal] = useState(false);
+            const [accountsList, setAccountsList] = useState([]);
             const [showLogin, setShowLogin] = useState(() => {
                 try {
                     const saved = sessionStorage.getItem('pkbb_auth_session');
@@ -641,6 +664,20 @@
                     if (snap.val()) setThotNotPassword(snap.val());
                 });
 
+                // Danh sách tài khoản hệ thống (accounts_v2)
+                db.ref('accounts_v2').on('value', (snap) => {
+                    const val = snap.val();
+                    if (val) {
+                        const list = Object.entries(val).map(([id, item]) => ({
+                            id,
+                            ...item
+                        }));
+                        setAccountsList(list);
+                    } else {
+                        setAccountsList([]);
+                    }
+                });
+
                 // Medicine list
                 db.ref('settings_v2/medicineList').once('value', (snapshot) => {
                     if (snapshot.val()) {
@@ -715,66 +752,12 @@
                 }
             };
 
-            const managePasswords = async () => {
+            const managePasswords = () => {
                 if (!isMasterAdmin) {
                     alert('❌ Chỉ tài khoản Admin tổng mới có quyền quản lý tài khoản!');
                     return;
                 }
-
-                const accounts = [
-                    { name: '👨‍💼 Admin (Toàn quyền)', role: 'admin', path: 'passwords_v2/admin', currentPass: adminPassword, setter: setAdminPassword },
-                    { name: '👨‍💼 Admin Ngã Bảy', role: 'admin-nga-bay', path: 'passwords_v2/admin-nga-bay', currentPass: adminNgaBayPassword, setter: setAdminNgaBayPassword },
-                    { name: '👨‍💻 Nhân viên Ngã Bảy', role: 'nga-bay', path: 'passwords_v2/nga-bay', currentPass: ngaBayPassword, setter: setNgaBayPassword },
-                    { name: '👨‍💻 Nhân viên Thốt Nốt', role: 'thot-not', path: 'passwords_v2/thot-not', currentPass: thotNotPassword, setter: setThotNotPassword }
-                ];
-
-                let message = '👥 QUẢN LÝ TÀI KHOẢN\n\n';
-                message += 'Chọn tài khoản cần đổi mật khẩu:\n\n';
-                accounts.forEach((acc, i) => {
-                    message += `${i + 1}. ${acc.name}\n`;
-                });
-                message += '\nNhập số (1-4) hoặc 0 để hủy:';
-
-                const choice = prompt(message);
-                if (!choice || choice === '0') return;
-
-                const index = parseInt(choice) - 1;
-                if (index < 0 || index >= accounts.length) {
-                    alert('❌ Lựa chọn không hợp lệ!');
-                    return;
-                }
-
-                const account = accounts[index];
-                
-                const newPass = prompt(`🔐 Đổi mật khẩu cho: ${account.name}\n\nNhập mật khẩu mới:`);
-                if (!newPass) return;
-                
-                if (newPass.length < 4) {
-                    alert('❌ Mật khẩu phải có ít nhất 4 ký tự!');
-                    return;
-                }
-                
-                const confirmPass = prompt('Nhập lại mật khẩu mới để xác nhận:');
-                if (!confirmPass) return;
-                
-                if (newPass !== confirmPass) {
-                    alert('❌ Mật khẩu xác nhận không khớp!');
-                    return;
-                }
-                
-                try {
-                    await db.ref(account.path).set(newPass);
-                    if (account.role === 'admin') await db.ref('settings_v2/adminPassword').set(newPass);
-                    if (account.role === 'admin-nga-bay') await db.ref('settings_v2/adminNgaBayPassword').set(newPass);
-                    if (account.role === 'nga-bay') await db.ref('settings_v2/ngaBayPassword').set(newPass);
-                    if (account.role === 'thot-not') await db.ref('settings_v2/thotNotPassword').set(newPass);
-
-                    account.setter(newPass);
-                    alert(`✅ Đã đổi mật khẩu thành công cho: ${account.name}`);
-                } catch (error) {
-                    console.error('Error changing password:', error);
-                    alert('❌ Lỗi khi đổi mật khẩu: ' + error.message);
-                }
+                setShowAccountModal(true);
             };
 
             // Load data when date/branch changes
@@ -983,7 +966,7 @@
                 }
 
                 if (!password) {
-                    const promptedPass = prompt('🔐 Nhập mật khẩu:');
+                    const promptedPass = prompt('🔐 Nhập mật khẩu truy cập:');
                     if (!promptedPass) {
                         setLoginError('Vui lòng nhập mật khẩu để đăng nhập.');
                         return;
@@ -1009,33 +992,51 @@
                     } catch (e) {}
                 };
 
-                // Kiểm tra Admin (toàn quyền): hỗ trợ mật khẩu Firebase ('admin@2025') hoặc mặc định '123456'
+                // 1. Nhận diện tài khoản nhân viên / quản lý qua mật khẩu riêng (do Admin cấu hình)
+                const matchedByPass = accountsList.find(acc => String(acc.password || '').trim() === password);
+                if (matchedByPass) {
+                    applyLogin(
+                        { 
+                            id: matchedByPass.id, 
+                            username: matchedByPass.username || matchedByPass.name, 
+                            name: matchedByPass.name || matchedByPass.username, 
+                            role: matchedByPass.role, 
+                            branch: matchedByPass.branch 
+                        },
+                        matchedByPass.role,
+                        matchedByPass.branch,
+                        matchedByPass.branch !== 'all' ? matchedByPass.branch : null
+                    );
+                    return;
+                }
+
+                // 2. Mật khẩu mặc định / tương thích hệ thống:
+                // 2a. Kiểm tra Admin (toàn quyền): hỗ trợ mật khẩu Firebase ('admin@2025') hoặc mặc định '123456'
                 if (password === adminPassword || password === '123456' || password === 'admin@2025') {
-                    applyLogin({ role: 'admin', branch: null }, 'admin', 'all', null);
+                    applyLogin({ id: 'acc_admin', username: 'admin', name: 'Admin Tổng', role: 'admin', branch: 'all' }, 'admin', 'all', null);
                     return;
                 }
 
-                // Kiểm tra Admin Ngã Bảy
+                // 2b. Kiểm tra Admin Ngã Bảy
                 if (password === adminNgaBayPassword || password === 'adminngabay123') {
-                    applyLogin({ role: 'admin', branch: 'nga-bay' }, 'admin', 'nga-bay', 'nga-bay');
+                    applyLogin({ id: 'acc_admin_nb', username: 'admin_ngabay', name: 'Admin Ngã Bảy', role: 'admin', branch: 'nga-bay' }, 'admin', 'nga-bay', 'nga-bay');
                     return;
                 }
 
-                // Kiểm tra Nhân viên Ngã Bảy: hỗ trợ mật khẩu Firebase ('ngabay2026') hoặc mặc định 'ngabay123'
+                // 2c. Kiểm tra Nhân viên Ngã Bảy: hỗ trợ mật khẩu Firebase ('ngabay2026') hoặc mặc định 'ngabay123'
                 if (password === ngaBayPassword || password === 'ngabay2026' || password === 'ngabay123') {
-                    applyLogin({ role: 'staff', branch: 'nga-bay' }, 'staff', 'nga-bay', 'nga-bay');
+                    applyLogin({ id: 'acc_staff_nb', username: 'nv_ngabay', name: 'NV Ngã Bảy', role: 'staff', branch: 'nga-bay' }, 'staff', 'nga-bay', 'nga-bay');
                     return;
                 }
 
-                // Kiểm tra Nhân viên Thốt Nốt: hỗ trợ mật khẩu Firebase ('thotnot2026', 'thotnot2025') hoặc mặc định 'thotnot123'
+                // 2d. Kiểm tra Nhân viên Thốt Nốt: hỗ trợ mật khẩu Firebase ('thotnot2026', 'thotnot2025') hoặc mặc định 'thotnot123'
                 if (password === thotNotPassword || password === 'thotnot2026' || password === 'thotnot2025' || password === 'thotnot123') {
-                    applyLogin({ role: 'staff', branch: 'thot-not' }, 'staff', 'thot-not', 'thot-not');
+                    applyLogin({ id: 'acc_staff_tn', username: 'nv_thotnot', name: 'NV Thốt Nốt', role: 'staff', branch: 'thot-not' }, 'staff', 'thot-not', 'thot-not');
                     return;
                 }
 
                 // Sai mật khẩu
-                setLoginError('❌ Mật khẩu không chính xác. Vui lòng kiểm tra lại!');
-                alert('❌ Mật khẩu không đúng!');
+                setLoginError('❌ Mật khẩu không chính xác! Vui lòng kiểm tra lại.');
             };
 
             const handleLogout = () => {
@@ -1047,6 +1048,7 @@
                 setAllowedBranch(null);
                 setShowLogin(true);
                 setLoginPasswordInput('');
+                setLoginUsernameInput('');
                 setLoginError('');
                 setCurrentView('input');
                 setSelectedBranch('nga-bay');
@@ -1188,10 +1190,10 @@
                                     e.preventDefault();
                                     handleLogin();
                                 }}
-                                className="space-y-5"
+                                className="space-y-4"
                             >
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
                                         🔐 Mật khẩu truy cập
                                     </label>
                                     <div className="relative">
@@ -1203,21 +1205,25 @@
                                                 setLoginPasswordInput(e.target.value);
                                                 if (loginError) setLoginError('');
                                             }}
-                                            placeholder="Nhập mật khẩu..."
+                                            placeholder="Nhập mật khẩu của bạn..."
                                             autoFocus
-                                            className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none text-base pr-12 transition bg-gray-50/50 hover:bg-white focus:bg-white"
+                                            className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none text-base pr-12 transition bg-gray-50/50 hover:bg-white focus:bg-white shadow-xs"
                                         />
                                         <button
                                             type="button"
                                             onClick={() => setShowPasswordText(!showPasswordText)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 p-1.5 text-sm font-medium transition"
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 p-1.5 text-base font-medium transition"
                                             title={showPasswordText ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                                         >
                                             {showPasswordText ? '🙈' : '👁️'}
                                         </button>
                                     </div>
+                                    <p className="text-[12px] text-gray-400 mt-2 flex items-center gap-1">
+                                        <span>💡</span>
+                                        <span>Chỉ cần nhập mật khẩu cá nhân do Admin cấp là vào ngay hệ thống.</span>
+                                    </p>
                                     {loginError && (
-                                        <div className="mt-2.5 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs sm:text-sm text-red-600 font-semibold flex items-center gap-1.5 animate-pulse">
+                                        <div className="mt-2.5 p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs sm:text-sm text-red-600 font-semibold flex items-center gap-1.5 animate-pulse">
                                             <span>⚠️</span>
                                             <span>{loginError}</span>
                                         </div>
@@ -1226,19 +1232,19 @@
 
                                 <button
                                     type="submit"
-                                    className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white py-3.5 px-6 rounded-xl font-bold text-base shadow-lg shadow-blue-500/20 hover:shadow-xl transition transform active:scale-98 flex items-center justify-center gap-2"
+                                    className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white py-3.5 px-6 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 hover:shadow-xl transition transform active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
                                 >
                                     <span>Đăng nhập hệ thống</span>
                                     <span>➔</span>
                                 </button>
 
-                                <div className="pt-2 text-center">
+                                <div className="pt-1 text-center">
                                     <button
                                         type="button"
                                         onClick={() => handleLogin()}
                                         className="text-xs text-indigo-600 hover:text-indigo-800 underline font-medium transition"
                                     >
-                                        🔑 Hoặc mở hộp thoại nhập mật khẩu (prompt)
+                                        🔑 Mở hộp thoại nhập mật khẩu (popup)
                                     </button>
                                 </div>
                             </form>
@@ -1263,16 +1269,33 @@
                 <div className="container mx-auto px-4 py-6 max-w-7xl">
                     {/* Header */}
                     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                        <div className="flex justify-between items-center mb-4">
-                            <div>
-                                <h1 className="text-3xl font-bold text-blue-600">Phòng Khám Bách Bảo</h1>
-                                <p className="text-sm text-gray-600 mt-1">Hệ thống quản lý thu chi</p>
+                        <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+                            <div className="flex items-center gap-3">
+                                <div>
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-blue-600">Phòng Khám Bách Bảo</h1>
+                                    <p className="text-xs sm:text-sm text-gray-600 mt-1">Hệ thống quản lý thu chi</p>
+                                </div>
+                                {user && (
+                                    <div className="hidden sm:flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl text-xs text-blue-900 font-bold shadow-2xs">
+                                        <span>👤</span>
+                                        <span>{user.name || user.username || (userRole === 'admin' ? 'Admin' : 'Nhân viên')}</span>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                                            allowedBranch === 'all' 
+                                                ? 'bg-purple-100 text-purple-800' 
+                                                : allowedBranch === 'nga-bay' 
+                                                    ? 'bg-emerald-100 text-emerald-800' 
+                                                    : 'bg-indigo-100 text-indigo-800'
+                                        }`}>
+                                            {allowedBranch === 'all' ? 'Toàn quyền' : allowedBranch === 'nga-bay' ? 'Ngã Bảy' : 'Thốt Nốt'}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap items-center">
                                 {userRole === 'admin' && (
                                     <button
                                         onClick={sendTelegramReport}
-                                        className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition font-semibold"
+                                        className="bg-blue-500 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-blue-600 transition font-semibold text-xs sm:text-sm"
                                     >
                                         📨 Gửi TG
                                     </button>
@@ -1280,14 +1303,15 @@
                                 {isMasterAdmin && (
                                     <button
                                         onClick={managePasswords}
-                                        className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition font-semibold"
+                                        className="bg-purple-600 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-purple-700 transition font-semibold text-xs sm:text-sm flex items-center gap-1.5 shadow-sm"
                                     >
-                                        👥 Quản lý tài khoản
+                                        <span>👥</span>
+                                        <span>Quản lý tài khoản</span>
                                     </button>
                                 )}
                                 <button
                                     onClick={handleLogout}
-                                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition font-semibold"
+                                    className="bg-gray-500 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-600 transition font-semibold text-xs sm:text-sm"
                                 >
                                     🚪 Đăng xuất
                                 </button>
@@ -1491,6 +1515,8 @@
                                 saveCustomPrices={saveCustomPrices}
                                 selectedBranch={selectedBranch}
                                 selectedDate={selectedDate}
+                                currentUser={user}
+                                userRole={userRole}
                             />
 
                             {/* Doctor Fees */}
@@ -1696,6 +1722,19 @@
                             selectedDate={selectedDate}
                             allowedBranch={allowedBranch}
                             isMasterAdmin={isMasterAdmin}
+                            currentUser={user}
+                        />
+                    )}
+
+                    {/* Modal Quản Lý Tài Khoản (Ngã Bảy & Thốt Nốt) */}
+                    {showAccountModal && isMasterAdmin && (
+                        <AccountManagementModal 
+                            accounts={accountsList}
+                            adminPassword={adminPassword}
+                            adminNgaBayPassword={adminNgaBayPassword}
+                            ngaBayPassword={ngaBayPassword}
+                            thotNotPassword={thotNotPassword}
+                            onClose={() => setShowAccountModal(false)}
                         />
                     )}
                 </div>
@@ -3381,8 +3420,661 @@
             return lines.join('\n');
         }
 
+        // Modal Quản Lý Tài Khoản Cho Admin (Tạo / Đổi mật khẩu / Xóa tài khoản của 2 chi nhánh)
+        function AccountManagementModal({ 
+            accounts = [], 
+            adminPassword, 
+            adminNgaBayPassword, 
+            ngaBayPassword, 
+            thotNotPassword, 
+            onClose 
+        }) {
+            const [filterBranch, setFilterBranch] = useState('all'); // 'all' | 'nga-bay' | 'thot-not' | 'admin'
+            const [isAdding, setIsAdding] = useState(false);
+            const [newUsername, setNewUsername] = useState('');
+            const [newName, setNewName] = useState('');
+            const [newPassword, setNewPassword] = useState('');
+            const [newBranch, setNewBranch] = useState('nga-bay'); // 'nga-bay' | 'thot-not'
+            const [newRole, setNewRole] = useState('staff'); // 'staff' | 'admin'
+            const [formError, setFormError] = useState('');
+            const [isSubmitting, setIsSubmitting] = useState(false);
+            const [showPasswordsMap, setShowPasswordsMap] = useState({});
+
+            // State đổi mật khẩu cho từng tài khoản
+            const [editingPassAccId, setEditingPassAccId] = useState(null);
+            const [editNewPass, setEditNewPass] = useState('');
+            const [editConfirmPass, setEditConfirmPass] = useState('');
+
+            // Tự động seed 4 tài khoản mặc định nếu danh sách trống
+            const handleSeedDefaultAccounts = async () => {
+                if (!confirm('Khởi tạo 4 tài khoản hệ thống mặc định (Admin Tổng, Admin Ngã Bảy, NV Ngã Bảy, NV Thốt Nốt)?')) return;
+                try {
+                    const defaults = {
+                        'acc_admin_master': {
+                            id: 'acc_admin_master',
+                            username: 'admin',
+                            name: 'Admin Tổng',
+                            password: adminPassword || '123456',
+                            branch: 'all',
+                            role: 'admin',
+                            createdAt: new Date().toISOString()
+                        },
+                        'acc_admin_nb': {
+                            id: 'acc_admin_nb',
+                            username: 'admin_ngabay',
+                            name: 'Admin Ngã Bảy',
+                            password: adminNgaBayPassword || 'adminngabay123',
+                            branch: 'nga-bay',
+                            role: 'admin',
+                            createdAt: new Date().toISOString()
+                        },
+                        'acc_staff_nb': {
+                            id: 'acc_staff_nb',
+                            username: 'nv_ngabay',
+                            name: 'NV Ngã Bảy',
+                            password: ngaBayPassword || 'ngabay123',
+                            branch: 'nga-bay',
+                            role: 'staff',
+                            createdAt: new Date().toISOString()
+                        },
+                        'acc_staff_tn': {
+                            id: 'acc_staff_tn',
+                            username: 'nv_thotnot',
+                            name: 'NV Thốt Nốt',
+                            password: thotNotPassword || 'thotnot123',
+                            branch: 'thot-not',
+                            role: 'staff',
+                            createdAt: new Date().toISOString()
+                        }
+                    };
+                    await db.ref('accounts_v2').set(defaults);
+                    alert('✅ Đã tạo các tài khoản hệ thống ban đầu thành công!');
+                } catch (err) {
+                    alert('❌ Lỗi khởi tạo: ' + err.message);
+                }
+            };
+
+            const toggleShowPassword = (accId) => {
+                setShowPasswordsMap(prev => ({ ...prev, [accId]: !prev[accId] }));
+            };
+
+            // Tạo tài khoản mới
+            const handleCreateAccount = async (e) => {
+                if (e && e.preventDefault) e.preventDefault();
+                setFormError('');
+                const trimmedName = String(newName || '').trim();
+                const trimmedPass = String(newPassword || '').trim();
+                let trimmedUsername = String(newUsername || '').trim().toLowerCase();
+
+                if (!trimmedName) {
+                    setFormError('Vui lòng nhập tên nhân viên hiển thị!');
+                    return;
+                }
+                if (!trimmedPass) {
+                    setFormError('Vui lòng nhập mật khẩu riêng!');
+                    return;
+                }
+                if (trimmedPass.length < 3) {
+                    setFormError('Mật khẩu phải có ít nhất 3 ký tự!');
+                    return;
+                }
+
+                // Kiểm tra trùng mật khẩu với tài khoản khác (vì đăng nhập bằng pass nên mỗi người 1 mật khẩu riêng)
+                const dupPassAcc = accounts.find(acc => String(acc.password || '').trim() === trimmedPass);
+                if (dupPassAcc) {
+                    setFormError(`Mật khẩu "${trimmedPass}" đã được đặt cho "${dupPassAcc.name}". Vui lòng đặt mật khẩu riêng để hệ thống phân biệt đúng nhân viên!`);
+                    return;
+                }
+
+                // Tự sinh username nếu không nhập
+                if (!trimmedUsername) {
+                    trimmedUsername = trimmedName
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]/g, '_')
+                        .replace(/_+/g, '_')
+                        .replace(/^_|_$/g, '') || ('user_' + Math.floor(Math.random() * 1000));
+                }
+
+                // Kiểm tra trùng username nếu có
+                const exists = accounts.some(acc => acc.username && String(acc.username).toLowerCase().trim() === trimmedUsername);
+                if (exists) {
+                    trimmedUsername = `${trimmedUsername}_${Math.floor(Math.random() * 900 + 100)}`;
+                }
+
+                setIsSubmitting(true);
+                try {
+                    const accId = 'acc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+                    const newAcc = {
+                        id: accId,
+                        username: trimmedUsername,
+                        name: trimmedName,
+                        password: trimmedPass,
+                        branch: newBranch,
+                        role: newRole,
+                        createdAt: new Date().toISOString()
+                    };
+
+                    await db.ref(`accounts_v2/${accId}`).set(newAcc);
+                    alert(`✅ Đã tạo tài khoản cho "${trimmedName}" thành công!\nMật khẩu đăng nhập: ${trimmedPass}`);
+                    setNewUsername('');
+                    setNewName('');
+                    setNewPassword('');
+                    setIsAdding(false);
+                } catch (error) {
+                    alert('❌ Lỗi tạo tài khoản: ' + error.message);
+                } finally {
+                    setIsSubmitting(false);
+                }
+            };
+
+            // Đổi mật khẩu
+            const handleSavePassword = async (acc) => {
+                const trimmedNewPass = String(editNewPass || '').trim();
+                if (!trimmedNewPass || trimmedNewPass.length < 3) {
+                    alert('❌ Mật khẩu phải có ít nhất 3 ký tự!');
+                    return;
+                }
+                if (trimmedNewPass !== String(editConfirmPass || '').trim()) {
+                    alert('❌ Mật khẩu xác nhận không khớp!');
+                    return;
+                }
+
+                // Kiểm tra trùng mật khẩu
+                const dupPassAcc = accounts.find(a => a.id !== acc.id && String(a.password || '').trim() === trimmedNewPass);
+                if (dupPassAcc) {
+                    alert(`⚠️ Mật khẩu "${trimmedNewPass}" đã được dùng cho tài khoản "${dupPassAcc.name}"!\n\nVì hệ thống đăng nhập chỉ bằng mật khẩu, vui lòng đặt mật khẩu riêng biệt để hệ thống nhận diện đúng nhân viên.`);
+                    return;
+                }
+
+                try {
+                    await db.ref(`accounts_v2/${acc.id}/password`).set(trimmedNewPass);
+
+                    // Đồng bộ nếu là tài khoản hệ thống cũ
+                    if (acc.username === 'admin' || acc.id === 'acc_admin_master') {
+                        await db.ref('passwords_v2/admin').set(trimmedNewPass);
+                        await db.ref('settings_v2/adminPassword').set(trimmedNewPass);
+                    } else if (acc.username === 'admin_ngabay' || acc.id === 'acc_admin_nb') {
+                        await db.ref('passwords_v2/admin-nga-bay').set(trimmedNewPass);
+                        await db.ref('settings_v2/adminNgaBayPassword').set(trimmedNewPass);
+                    } else if (acc.username === 'nv_ngabay' || acc.id === 'acc_staff_nb') {
+                        await db.ref('passwords_v2/nga-bay').set(trimmedNewPass);
+                        await db.ref('settings_v2/ngaBayPassword').set(trimmedNewPass);
+                    } else if (acc.username === 'nv_thotnot' || acc.id === 'acc_staff_tn') {
+                        await db.ref('passwords_v2/thot-not').set(trimmedNewPass);
+                        await db.ref('settings_v2/thotNotPassword').set(trimmedNewPass);
+                    }
+
+                    alert(`✅ Đã đổi mật khẩu cho tài khoản "${acc.name}" thành công!`);
+                    setEditingPassAccId(null);
+                    setEditNewPass('');
+                    setEditConfirmPass('');
+                } catch (err) {
+                    alert('❌ Lỗi khi đổi mật khẩu: ' + err.message);
+                }
+            };
+
+            // Xóa tài khoản
+            const handleDeleteAccount = async (acc) => {
+                if (acc.username === 'admin' || acc.id === 'acc_admin_master' || (acc.role === 'admin' && acc.branch === 'all')) {
+                    alert('⚠️ Không thể xóa tài khoản Admin Tổng!');
+                    return;
+                }
+
+                const branchName = acc.branch === 'nga-bay' ? 'Ngã Bảy' : acc.branch === 'thot-not' ? 'Thốt Nốt' : 'Hệ thống';
+                if (!confirm(`Bạn có chắc chắn muốn XÓA tài khoản:\n\n👤 ${acc.name} (@${acc.username})\n🏥 Chi nhánh: ${branchName}\n\nThao tác này không thể hoàn tác!`)) {
+                    return;
+                }
+
+                try {
+                    await db.ref(`accounts_v2/${acc.id}`).remove();
+                    alert(`✅ Đã xóa tài khoản "${acc.name}" thành công!`);
+                } catch (err) {
+                    alert('❌ Lỗi khi xóa tài khoản: ' + err.message);
+                }
+            };
+
+            // Lọc danh sách theo tab
+            const filteredAccounts = accounts.filter(acc => {
+                if (filterBranch === 'all') return true;
+                if (filterBranch === 'nga-bay') return acc.branch === 'nga-bay';
+                if (filterBranch === 'thot-not') return acc.branch === 'thot-not';
+                if (filterBranch === 'admin') return acc.role === 'admin' || acc.branch === 'all';
+                return true;
+            });
+
+            const countNgaBay = accounts.filter(a => a.branch === 'nga-bay').length;
+            const countThotNot = accounts.filter(a => a.branch === 'thot-not').length;
+            const countAdmin = accounts.filter(a => a.role === 'admin' || a.branch === 'all').length;
+
+            return (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full flex flex-col max-h-[92vh] overflow-hidden border border-gray-100 animate-fadeIn my-auto">
+                        {/* Header Modal */}
+                        <div className="shrink-0 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 text-white p-4 sm:p-5 flex justify-between items-center shadow-sm">
+                            <div className="flex items-center gap-2.5">
+                                <span className="text-2xl sm:text-3xl">👥</span>
+                                <div>
+                                    <h2 className="text-base sm:text-xl font-black tracking-tight">Quản Lý Tài Khoản Chi Nhánh</h2>
+                                    <p className="text-purple-100 text-xs font-medium">Tạo, đổi mật khẩu & xóa tài khoản Ngã Bảy và Thốt Nốt</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center font-bold text-lg transition active:scale-95"
+                                title="Đóng"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Top Bar: Tabs & Thêm tài khoản */}
+                        <div className="p-3 sm:p-4 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2.5">
+                            {/* Tabs bộ lọc */}
+                            <div className="flex gap-1 sm:gap-1.5 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterBranch('all')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                                        filterBranch === 'all'
+                                            ? 'bg-purple-600 text-white shadow-2xs'
+                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                                    }`}
+                                >
+                                    Tất cả ({accounts.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterBranch('nga-bay')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+                                        filterBranch === 'nga-bay'
+                                            ? 'bg-emerald-600 text-white shadow-2xs'
+                                            : 'bg-white text-emerald-800 hover:bg-emerald-50 border border-emerald-200'
+                                    }`}
+                                >
+                                    <span>🏥 Ngã Bảy</span>
+                                    <span className="text-[10px] px-1 rounded-full bg-black/10">({countNgaBay})</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterBranch('thot-not')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+                                        filterBranch === 'thot-not'
+                                            ? 'bg-indigo-600 text-white shadow-2xs'
+                                            : 'bg-white text-indigo-800 hover:bg-indigo-50 border border-indigo-200'
+                                    }`}
+                                >
+                                    <span>🏥 Thốt Nốt</span>
+                                    <span className="text-[10px] px-1 rounded-full bg-black/10">({countThotNot})</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterBranch('admin')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
+                                        filterBranch === 'admin'
+                                            ? 'bg-amber-600 text-white shadow-2xs'
+                                            : 'bg-white text-amber-800 hover:bg-amber-50 border border-amber-200'
+                                    }`}
+                                >
+                                    <span>👨‍💼 Quản trị</span>
+                                    <span className="text-[10px] px-1 rounded-full bg-black/10">({countAdmin})</span>
+                                </button>
+                            </div>
+
+                            {/* Nút bật form thêm tài khoản */}
+                            <div className="flex gap-2">
+                                {accounts.length === 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={handleSeedDefaultAccounts}
+                                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition shadow-2xs flex items-center gap-1"
+                                    >
+                                        <span>⚡</span> Khởi tạo mặc định
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsAdding(!isAdding);
+                                        setFormError('');
+                                    }}
+                                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs flex items-center gap-1 ${
+                                        isAdding
+                                            ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+                                    }`}
+                                >
+                                    <span>{isAdding ? '✕ Đóng form' : '➕ Thêm tài khoản'}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Form Thêm tài khoản mới */}
+                        {isAdding && (
+                            <div className="p-4 bg-purple-50/70 border-b border-purple-200 animate-fadeIn">
+                                <form onSubmit={handleCreateAccount} className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-xs sm:text-sm font-black text-purple-900 flex items-center gap-1.5">
+                                            <span>✨</span> Thêm tài khoản nhân viên / quản lý mới
+                                        </h3>
+                                        {formError && (
+                                            <span className="text-xs text-red-600 font-bold bg-red-100 px-2 py-0.5 rounded-lg animate-pulse">
+                                                ⚠️ {formError}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                                👤 Tên nhân viên hiển thị *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={newName}
+                                                onChange={(e) => setNewName(e.target.value)}
+                                                placeholder="VD: Chị Linh, BS Thảo, Mai..."
+                                                className="w-full text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none font-medium"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                                🔐 Mật khẩu đăng nhập riêng *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={newPassword}
+                                                onChange={(e) => setNewPassword(e.target.value)}
+                                                placeholder="Mật khẩu riêng để đăng nhập"
+                                                className="w-full text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none font-medium"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                                🏥 Chi nhánh phân quyền
+                                            </label>
+                                            <select
+                                                value={newBranch}
+                                                onChange={(e) => setNewBranch(e.target.value)}
+                                                className="w-full text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none font-bold text-gray-800"
+                                            >
+                                                <option value="nga-bay">🏥 Chi nhánh Ngã Bảy</option>
+                                                <option value="thot-not">🏥 Chi nhánh Thốt Nốt</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                                ⚙️ Vai trò tài khoản
+                                            </label>
+                                            <select
+                                                value={newRole}
+                                                onChange={(e) => setNewRole(e.target.value)}
+                                                className="w-full text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none font-bold text-gray-800"
+                                            >
+                                                <option value="staff">👨‍💻 Nhân viên (Nhập toa & in bill)</option>
+                                                <option value="admin">👨‍💼 Quản lý chi nhánh</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                                🏷️ Tên đăng nhập (@username)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={newUsername}
+                                                onChange={(e) => setNewUsername(e.target.value)}
+                                                placeholder="Tùy chọn (tự sinh nếu để trống)"
+                                                className="w-full text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none font-mono"
+                                            />
+                                        </div>
+
+                                        <div className="flex items-end gap-2">
+                                            <button
+                                                type="submit"
+                                                disabled={isSubmitting}
+                                                className="flex-1 py-2 px-3 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm transition flex items-center justify-center gap-1.5"
+                                            >
+                                                <span>✓</span>
+                                                <span>{isSubmitting ? 'Đang tạo...' : 'Tạo tài khoản'}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsAdding(false)}
+                                                className="py-2 px-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold text-xs sm:text-sm rounded-xl transition"
+                                            >
+                                                Hủy
+                                            </button>
+                                        </div>
+
+                                        <div className="sm:col-span-2 md:col-span-3">
+                                            <p className="text-[11px] text-purple-800 font-medium bg-purple-100/80 px-3 py-2 rounded-xl flex items-center gap-1.5 border border-purple-200">
+                                                <span>💡</span>
+                                                <span>Nhân viên chỉ cần nhập <strong>mật khẩu</strong> là vào ngay hệ thống. Tên nhân viên sẽ tự động hiển thị khi nhập, sửa, và in bill.</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        )}
+
+                        {/* Danh sách tài khoản (Body scrollable) */}
+                        <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-3">
+                            {filteredAccounts.length === 0 ? (
+                                <div className="text-center py-10 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                    <div className="text-3xl mb-2">📭</div>
+                                    <p className="text-sm font-bold text-gray-700">Chưa có tài khoản nào trong danh mục này</p>
+                                    <p className="text-xs text-gray-400 mt-1">Bấm nút "Thêm tài khoản" ở trên để tạo mới hoặc khởi tạo 4 tài khoản mặc định.</p>
+                                    {accounts.length === 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleSeedDefaultAccounts}
+                                            className="mt-3 px-4 py-2 bg-purple-600 text-white font-bold text-xs rounded-xl shadow-xs hover:bg-purple-700 transition"
+                                        >
+                                            ⚡ Khởi tạo 4 tài khoản hệ thống ngay
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {filteredAccounts.map((acc) => {
+                                        const isMaster = acc.username === 'admin' || acc.id === 'acc_admin_master' || (acc.role === 'admin' && acc.branch === 'all');
+                                        const isNb = acc.branch === 'nga-bay';
+                                        const isTn = acc.branch === 'thot-not';
+                                        const isEditingPass = editingPassAccId === acc.id;
+                                        const isShowPass = showPasswordsMap[acc.id];
+
+                                        return (
+                                            <div
+                                                key={acc.id}
+                                                className={`p-3.5 rounded-2xl border transition shadow-xs ${
+                                                    isMaster
+                                                        ? 'bg-amber-50/50 border-amber-200'
+                                                        : isNb
+                                                            ? 'bg-emerald-50/40 border-emerald-200'
+                                                            : isTn
+                                                                ? 'bg-indigo-50/40 border-indigo-200'
+                                                                : 'bg-white border-gray-200'
+                                                }`}
+                                            >
+                                                {/* Header thẻ: Tên + Role badge */}
+                                                <div className="flex items-start justify-between gap-2 pb-2 border-b border-gray-100">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold shrink-0 ${
+                                                            isMaster 
+                                                                ? 'bg-amber-100 text-amber-800' 
+                                                                : acc.role === 'admin'
+                                                                    ? 'bg-purple-100 text-purple-800'
+                                                                    : 'bg-blue-100 text-blue-800'
+                                                        }`}>
+                                                            {isMaster ? '👑' : acc.role === 'admin' ? '👨‍💼' : '👨‍💻'}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <div className="font-extrabold text-gray-900 text-sm truncate flex items-center gap-1.5">
+                                                                <span>{acc.name}</span>
+                                                                {isMaster && (
+                                                                    <span className="text-[10px] bg-amber-500 text-white font-black px-1.5 py-0.2 rounded-md">
+                                                                        MASTER
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-xs text-gray-500 font-mono">
+                                                                @{acc.username}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
+                                                            isNb 
+                                                                ? 'bg-emerald-100 text-emerald-800' 
+                                                                : isTn
+                                                                    ? 'bg-indigo-100 text-indigo-800'
+                                                                    : 'bg-purple-100 text-purple-800'
+                                                        }`}>
+                                                            {isNb ? '🏥 Ngã Bảy' : isTn ? '🏥 Thốt Nốt' : '🌟 Toàn quyền'}
+                                                        </span>
+                                                        <span className="text-[10px] text-gray-500 font-semibold">
+                                                            {acc.role === 'admin' ? 'Quản lý' : 'Nhân viên'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Giữa: Xem mật khẩu */}
+                                                <div className="py-2 flex items-center justify-between text-xs">
+                                                    <div className="flex items-center gap-1.5 text-gray-600">
+                                                        <span className="text-gray-400 font-medium">Mật khẩu:</span>
+                                                        <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded-lg border border-gray-200">
+                                                            {isShowPass ? (acc.password || '---') : '••••••••'}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleShowPassword(acc.id)}
+                                                            className="text-gray-400 hover:text-gray-700 text-xs p-1"
+                                                            title={isShowPass ? 'Che mật khẩu' : 'Hiện mật khẩu'}
+                                                        >
+                                                            {isShowPass ? '🙈' : '👁️'}
+                                                        </button>
+                                                    </div>
+
+                                                    {acc.createdAt && (
+                                                        <span className="text-[10px] text-gray-400" title={acc.createdAt}>
+                                                            Tạo: {new Date(acc.createdAt).toLocaleDateString('vi-VN')}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Form đổi mật khẩu nhanh nếu đang mở */}
+                                                {isEditingPass && (
+                                                    <div className="my-2 p-2.5 bg-white rounded-xl border border-purple-300 shadow-2xs space-y-2 animate-fadeIn">
+                                                        <div className="text-xs font-bold text-purple-900 flex items-center gap-1">
+                                                            <span>🔐</span> Đổi mật khẩu cho: {acc.name}
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <input
+                                                                type="text"
+                                                                value={editNewPass}
+                                                                onChange={(e) => setEditNewPass(e.target.value)}
+                                                                placeholder="Mật khẩu mới..."
+                                                                className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 font-medium"
+                                                            />
+                                                            <input
+                                                                type="text"
+                                                                value={editConfirmPass}
+                                                                onChange={(e) => setEditConfirmPass(e.target.value)}
+                                                                placeholder="Nhập lại..."
+                                                                className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 font-medium"
+                                                            />
+                                                        </div>
+                                                        <div className="flex justify-end gap-1.5 pt-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSavePassword(acc)}
+                                                                className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-lg hover:bg-purple-700 transition"
+                                                            >
+                                                                ✓ Cập nhật
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingPassAccId(null);
+                                                                    setEditNewPass('');
+                                                                    setEditConfirmPass('');
+                                                                }}
+                                                                className="px-2.5 py-1 bg-gray-200 text-gray-700 font-semibold text-xs rounded-lg hover:bg-gray-300"
+                                                            >
+                                                                Hủy
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Thao tác: Đổi pass & Xóa */}
+                                                <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (isEditingPass) {
+                                                                setEditingPassAccId(null);
+                                                            } else {
+                                                                setEditingPassAccId(acc.id);
+                                                                setEditNewPass('');
+                                                                setEditConfirmPass('');
+                                                            }
+                                                        }}
+                                                        className="px-3 py-1.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold transition flex items-center gap-1 active:scale-95 shadow-2xs"
+                                                    >
+                                                        <span>🔑</span>
+                                                        <span>{isEditingPass ? 'Đóng' : 'Đổi mật khẩu'}</span>
+                                                    </button>
+
+                                                    {!isMaster && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteAccount(acc)}
+                                                            className="px-2.5 py-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl text-xs font-bold transition flex items-center gap-1 active:scale-95 border border-red-100"
+                                                            title="Xóa tài khoản này"
+                                                        >
+                                                            <span>🗑️</span>
+                                                            <span>Xóa</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer Modal */}
+                        <div className="shrink-0 p-3 sm:p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center text-xs text-gray-500">
+                            <div>
+                                💡 Nhân viên có thể đăng nhập bằng <b>Tên đăng nhập + Mật khẩu</b> hoặc đăng nhập trực tiếp bằng <b>Mật khẩu</b>.
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl transition active:scale-95 text-xs"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         // Modal xem trước và in bill cho máy in nhiệt
-        function BillPrintModal({ bill, onClose }) {
+        function BillPrintModal({ bill, onClose, currentUser, onPrinted }) {
             const [paperSize, setPaperSize] = useState('80mm');
             const [note, setNote] = useState('');
             const [timeString] = useState(() => {
@@ -3398,6 +4090,7 @@
                     const rawDate = bill.date || new Date().toISOString().split('T')[0];
                     const dateKey = String(rawDate).replace(/-/g, '');
                     const now = new Date();
+                    const operatorName = (currentUser && (currentUser.name || currentUser.username)) || 'Nhân viên';
                     const printRecord = {
                         prescriptionNo: String(bill.prescriptionNo || '').trim(),
                         name: String(bill.name || '').trim(),
@@ -3408,6 +4101,7 @@
                         dateKey: dateKey,
                         printedAt: now.toISOString(),
                         printedTime: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                        printedBy: operatorName,
                         timestamp: (typeof firebase !== 'undefined' && firebase.database && firebase.database.ServerValue) ? firebase.database.ServerValue.TIMESTAMP : Date.now(),
                         note: String(note || '').trim(),
                         paperSize: paperSize
@@ -3415,6 +4109,10 @@
 
                     if (typeof db !== 'undefined' && db && db.ref) {
                         db.ref(`printLogs_v2/${branchKey}/${dateKey}`).push(printRecord);
+                    }
+
+                    if (onPrinted) {
+                        onPrinted(bill, printRecord);
                     }
                 } catch (logErr) {
                     console.error('Lỗi ghi log in bill:', logErr);
@@ -3759,7 +4457,7 @@
         // ==========================================
         // GIAO DIỆN TỔNG HỢP & GIÁM SÁT BILL IN TRONG NGÀY (DÀNH CHO ADMIN)
         // ==========================================
-        function PrintSummaryReportView({ selectedBranch: propBranch, selectedDate: propDate, allowedBranch, isMasterAdmin }) {
+        function PrintSummaryReportView({ selectedBranch: propBranch, selectedDate: propDate, allowedBranch, isMasterAdmin, currentUser }) {
             const [currentBranch, setCurrentBranch] = useState(() => {
                 if (allowedBranch && allowedBranch !== 'all') return allowedBranch;
                 return propBranch || 'nga-bay';
@@ -4598,6 +5296,7 @@
                                                 <th className="py-3 px-3 text-center w-12">#</th>
                                                 <th className="py-3 px-3">Thời gian in</th>
                                                 <th className="py-3 px-3">Chi nhánh</th>
+                                                <th className="py-3 px-3">Người in</th>
                                                 <th className="py-3 px-3">Số toa</th>
                                                 <th className="py-3 px-3">Bệnh nhân</th>
                                                 <th className="py-3 px-3 text-right">Số tiền</th>
@@ -4637,6 +5336,14 @@
                                                             <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-semibold">
                                                                 {log.branch === 'thot-not' ? 'Thốt Nốt' : 'Ngã Bảy'}
                                                             </span>
+                                                        </td>
+
+                                                        {/* Người in */}
+                                                        <td className="py-3 px-3 whitespace-nowrap text-xs font-bold text-blue-900">
+                                                            <div className="flex items-center gap-1">
+                                                                <span>👤</span>
+                                                                <span>{log.printedBy || <span className="text-gray-400 font-normal italic">Chưa rõ</span>}</span>
+                                                            </div>
                                                         </td>
 
                                                         {/* Số toa + Cảnh báo in nhiều lần */}
@@ -4762,9 +5469,11 @@
                                                     </span>
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1 border-t border-gray-100">
-                                                    <div className="flex items-center gap-1.5">
+                                                <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1 border-t border-gray-100 flex-wrap gap-1">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
                                                         <span>🕒 {log.printedTime}</span>
+                                                        <span>•</span>
+                                                        <span className="font-bold text-blue-900">👤 {log.printedBy || 'Chưa rõ'}</span>
                                                         <span>•</span>
                                                         <span>{log.branch === 'thot-not' ? 'Thốt Nốt' : 'Ngã Bảy'}</span>
                                                         <span>•</span>
@@ -4799,6 +5508,7 @@
                     {billToReprint && (
                         <BillPrintModal
                             bill={billToReprint}
+                            currentUser={currentUser}
                             onClose={() => setBillToReprint(null)}
                         />
                     )}
@@ -4842,8 +5552,21 @@
             customPrices = [], 
             saveCustomPrices, 
             selectedBranch, 
-            selectedDate 
+            selectedDate,
+            currentUser,
+            userRole
         }) {
+            // Xác định nhân viên hiện tại đang thao tác để ghi nhật ký
+            const currentOperator = (currentUser && (currentUser.name || currentUser.username)) || (userRole === 'admin' ? 'Admin' : 'Nhân viên');
+            const formatAuditTime = (isoString) => {
+                if (!isoString) return '';
+                try {
+                    const d = new Date(isoString);
+                    if (isNaN(d.getTime())) return '';
+                    return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                } catch (e) { return ''; }
+            };
+
             // Danh sách các toa khám đã lưu
             const [localPrescriptions, setLocalPrescriptions] = useState(() => {
                 if (Array.isArray(propPrescriptions) && propPrescriptions.length > 0) {
@@ -4922,12 +5645,20 @@
                     return;
                 }
 
+                const nowIso = new Date().toISOString();
                 const newRow = {
                     id: 'rx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
                     prescriptionNo: trimmedStt,
                     name: String(newName || '').trim(),
                     price: trimmedPrice,
-                    paymentMethod: newPaymentMethod
+                    paymentMethod: newPaymentMethod,
+                    createdBy: currentOperator,
+                    createdAt: nowIso,
+                    updatedBy: '',
+                    updatedAt: '',
+                    printedBy: '',
+                    lastPrintedAt: '',
+                    printCount: 0
                 };
 
                 // Đưa toa mới lên đầu danh sách phía dưới để nhân viên thấy ngay toa vừa lưu
@@ -4946,6 +5677,7 @@
                     setNewName('');
                     setNewPaymentMethod('cash');
                     setBillToPrint({
+                        id: newRow.id,
                         prescriptionNo: newRow.prescriptionNo,
                         name: newRow.name,
                         price: newRow.price,
@@ -4981,6 +5713,7 @@
 
             // Lưu chỉnh sửa toa
             const handleSaveEdit = (id) => {
+                const nowIso = new Date().toISOString();
                 const updated = localPrescriptions.map(r => {
                     if (r.id === id) {
                         return {
@@ -4988,7 +5721,9 @@
                             prescriptionNo: String(editForm.prescriptionNo || '').trim(),
                             name: String(editForm.name || '').trim(),
                             price: String(editForm.price || '').trim(),
-                            paymentMethod: editForm.paymentMethod
+                            paymentMethod: editForm.paymentMethod,
+                            updatedBy: currentOperator,
+                            updatedAt: nowIso
                         };
                     }
                     return r;
@@ -5004,9 +5739,15 @@
 
             // Chỉnh sửa từng trường của toa (cho bảng desktop)
             const handleRowChange = (id, field, value) => {
+                const nowIso = new Date().toISOString();
                 const updated = localPrescriptions.map(row => {
                     if (row.id === id) {
-                        return { ...row, [field]: value };
+                        return { 
+                            ...row, 
+                            [field]: value,
+                            updatedBy: currentOperator,
+                            updatedAt: nowIso
+                        };
                     }
                     return row;
                 });
@@ -5015,12 +5756,39 @@
 
             // Đổi hình thức thanh toán (Tiền mặt <-> Chuyển khoản) với 1 chạm
             const handleTogglePayment = (id) => {
+                const nowIso = new Date().toISOString();
                 const updated = localPrescriptions.map(row => {
                     if (row.id === id) {
                         const next = row.paymentMethod === 'transfer' ? 'cash' : 'transfer';
-                        return { ...row, paymentMethod: next };
+                        return { 
+                            ...row, 
+                            paymentMethod: next,
+                            updatedBy: currentOperator,
+                            updatedAt: nowIso
+                        };
                     }
                     return row;
+                });
+                commitPrescriptions(updated);
+            };
+
+            // Callback khi in bill thành công từ BillPrintModal
+            const handleBillPrinted = (billData) => {
+                if (!billData) return;
+                const nowIso = new Date().toISOString();
+                const updated = localPrescriptions.map(p => {
+                    const matchById = billData.id && p.id === billData.id;
+                    const matchByDetails = !billData.id && String(p.prescriptionNo || '').trim() === String(billData.prescriptionNo || '').trim() && String(p.name || '').trim() === String(billData.name || '').trim();
+                    if (matchById || matchByDetails) {
+                        const currentCount = parseInt(p.printCount, 10) || 0;
+                        return {
+                            ...p,
+                            printedBy: currentOperator,
+                            lastPrintedAt: nowIso,
+                            printCount: currentCount + 1
+                        };
+                    }
+                    return p;
                 });
                 commitPrescriptions(updated);
             };
@@ -5826,6 +6594,7 @@
                                                     <button
                                                         type="button"
                                                         onClick={() => setBillToPrint({
+                                                            id: row.id,
                                                             prescriptionNo: row.prescriptionNo,
                                                             name: row.name,
                                                             price: row.price,
@@ -5861,6 +6630,33 @@
                                                     )}
                                                 </div>
                                             </div>
+
+                                            {/* Hàng 3: Nhật ký thao tác (Nhập / Sửa / In) */}
+                                            {(row.createdBy || row.updatedBy || row.printedBy) && (
+                                                <div className="mt-1 pt-1.5 border-t border-gray-100 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-gray-600 bg-gray-50/90 px-2.5 py-1 rounded-xl">
+                                                    {row.createdBy && (
+                                                        <span className="inline-flex items-center gap-1">
+                                                            <span className="text-gray-400">👤 Nhập:</span>
+                                                            <strong className="text-gray-800 font-bold">{row.createdBy}</strong>
+                                                            {row.createdAt && <span className="text-[10px] text-gray-400">({formatAuditTime(row.createdAt)})</span>}
+                                                        </span>
+                                                    )}
+                                                    {row.updatedBy && (
+                                                        <span className="inline-flex items-center gap-1 text-amber-800">
+                                                            <span>✏️ Sửa:</span>
+                                                            <strong className="font-bold">{row.updatedBy}</strong>
+                                                            {row.updatedAt && <span className="text-[10px] text-gray-400">({formatAuditTime(row.updatedAt)})</span>}
+                                                        </span>
+                                                    )}
+                                                    {row.printedBy && (
+                                                        <span className="inline-flex items-center gap-1 text-indigo-700">
+                                                            <span>🖨️ In:</span>
+                                                            <strong className="font-bold">{row.printedBy}</strong>
+                                                            {row.printCount > 1 && <span className="text-[10px] bg-indigo-100 text-indigo-900 font-black px-1 rounded">x{row.printCount}</span>}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })}
@@ -5886,6 +6682,7 @@
                                             <th className="py-2 px-3">Tên bé / Bệnh nhân</th>
                                             <th className="py-2 px-3 w-32 sm:w-36">Tiền khám (k)</th>
                                             <th className="py-2 px-2 w-28 text-center">Hình thức</th>
+                                            <th className="py-2 px-3 w-44 sm:w-52 text-left">👤 Nhân viên thao tác</th>
                                             <th className="py-2 px-1 w-16 text-center">Thao tác</th>
                                         </tr>
                                     </thead>
@@ -5986,12 +6783,43 @@
                                                         </button>
                                                     </td>
 
+                                                    {/* Nhân viên thao tác: Nhập, Sửa, In */}
+                                                    <td className="py-1.5 px-3 align-middle text-[11px] leading-tight text-gray-600">
+                                                        <div className="flex flex-col gap-0.5">
+                                                            {row.createdBy && (
+                                                                <span className="inline-flex items-center gap-1" title={row.createdAt ? `Tạo lúc: ${new Date(row.createdAt).toLocaleString('vi-VN')}` : ''}>
+                                                                    <span className="text-gray-400">📥</span>
+                                                                    <strong className="text-gray-800 font-semibold">{row.createdBy}</strong>
+                                                                    {row.createdAt && <span className="text-[10px] text-gray-400">({formatAuditTime(row.createdAt)})</span>}
+                                                                </span>
+                                                            )}
+                                                            {row.updatedBy && (
+                                                                <span className="inline-flex items-center gap-1 text-amber-800" title={row.updatedAt ? `Sửa lúc: ${new Date(row.updatedAt).toLocaleString('vi-VN')}` : ''}>
+                                                                    <span>✏️</span>
+                                                                    <strong className="font-semibold">{row.updatedBy}</strong>
+                                                                    {row.updatedAt && <span className="text-[10px] text-gray-400">({formatAuditTime(row.updatedAt)})</span>}
+                                                                </span>
+                                                            )}
+                                                            {row.printedBy && (
+                                                                <span className="inline-flex items-center gap-1 text-indigo-700" title={row.lastPrintedAt ? `In lúc: ${new Date(row.lastPrintedAt).toLocaleString('vi-VN')}` : ''}>
+                                                                    <span>🖨️</span>
+                                                                    <strong className="font-semibold">{row.printedBy}</strong>
+                                                                    {row.printCount > 1 && <span className="text-[10px] bg-indigo-100 text-indigo-900 font-black px-1 rounded">x{row.printCount}</span>}
+                                                                </span>
+                                                            )}
+                                                            {!row.createdBy && !row.updatedBy && !row.printedBy && (
+                                                                <span className="text-gray-300 italic text-[11px]">—</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+
                                                     {/* Thao tác (In / Xóa) */}
                                                     <td className="py-1.5 px-1 text-center align-middle">
                                                         <div className="flex items-center justify-center gap-1">
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setBillToPrint({
+                                                                    id: row.id,
                                                                     prescriptionNo: row.prescriptionNo,
                                                                     name: row.name,
                                                                     price: row.price,
@@ -6048,6 +6876,8 @@
                     {billToPrint && (
                         <BillPrintModal 
                             bill={billToPrint}
+                            currentUser={currentUser}
+                            onPrinted={handleBillPrinted}
                             onClose={() => setBillToPrint(null)}
                         />
                     )}

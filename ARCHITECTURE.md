@@ -234,3 +234,29 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - **Chống lỗi định dạng Markdown & Chia nhỏ tin nhắn:**
     - Tự động lọc ký tự đặc biệt (`*`, `_`, `[`, `]`) trong tên bệnh nhân, bác sĩ, chi phí để tránh lỗi cú pháp parse Markdown của Telegram.
     - Cơ chế tự động cắt nhỏ tin nhắn (chunks <= 4000 ký tự) đảm bảo gửi thành công 100% kể cả trong những ngày cao điểm có hàng trăm bệnh nhân.
+
+### Quản lý Tài khoản Đa Chi Nhánh & Nhật Ký Thao Tác (Audit Trail)
+- **Quản lý Tài khoản cho Admin (`AccountManagementModal` & `accounts_v2`):**
+  - **Firebase Node `accounts_v2/{accountId}`:** Lưu trữ danh sách tài khoản độc lập gồm: `id`, `username`, `password`, `name` (tên hiển thị / tên nhân viên), `role` (`admin` | `staff`), `branch` (`all` | `nga-bay` | `thot-not`), `createdAt`, `updatedAt`.
+  - **Chức năng dành riêng cho Admin:**
+    - Tạo tài khoản mới cho từng chi nhánh (chọn chi nhánh Ngã Bảy, Thốt Nốt, hoặc Toàn quyền).
+    - Đổi mật khẩu trực tiếp cho bất kỳ tài khoản nào với tính năng bật/tắt ẩn hiện mật khẩu và đồng bộ tức thì lên Firebase.
+    - Xóa tài khoản nhân viên (có cơ chế bảo vệ tài khoản Master Admin `admin` không thể bị xóa).
+    - Bộ lọc danh sách tài khoản theo chi nhánh (`Tất cả`, `Ngã Bảy`, `Thốt Nốt`, `Quản trị Admin`).
+    - Nút "Khởi tạo tài khoản mẫu" tự động nạp các tài khoản chuẩn ban đầu nếu hệ thống chưa có dữ liệu.
+  - **Cơ chế Đăng nhập Siêu Tốc Bằng Mật Khẩu (Password-Only Login):**
+    - Màn hình Đăng nhập chỉ hiển thị duy nhất 1 ô nhập: **`🔐 Mật khẩu truy cập`**. Nhân viên không cần nhớ hay gõ bất kỳ Tên đăng nhập (`username`) nào.
+    - Admin tự đặt sẵn **Tên nhân viên** và **Mật khẩu riêng biệt** cho từng người trong mục "Quản lý tài khoản".
+    - Hệ thống có cơ chế kiểm tra tính duy nhất của mật khẩu khi tạo/đổi pass. Khi nhân viên gõ mật khẩu của mình và bấm Enter, hệ thống tự động nhận diện chính xác người đó là ai (tên hiển thị, chi nhánh, quyền hạn) và đăng nhập ngay lập tức.
+    - Hệ thống vẫn tương thích hoàn toàn với các mật khẩu hệ thống mặc định cũ (`123456`, `adminngabay123`, `ngabay123`, `thotnot123`, v.v.).
+- **Nhật ký Thao tác Toa Khám (Audit Trail - Biết ai Nhập, Sửa, In Bill):**
+  - **Cấu trúc trường kiểm toán trên từng toa khám (`prescriptions`):**
+    - `createdBy`, `createdAt`: Tên nhân viên và thời điểm nhập toa mới.
+    - `updatedBy`, `updatedAt`: Tên nhân viên và thời điểm thực hiện chỉnh sửa gần nhất (sửa số tiền, tên bé, STT toa, hoặc đổi hình thức thanh toán Tiền mặt/Chuyển khoản).
+    - `printedBy`, `lastPrintedAt`, `printCount`: Tên nhân viên bấm in bill, thời điểm in gần nhất, và tổng số lượt in của toa đó.
+  - **Bảo toàn dữ liệu qua các hàm chuyển đổi:**
+    - `convertOldDataToPrescriptions` và `convertPrescriptionsToOldFormat` bảo toàn tuyệt đối toàn bộ các trường audit trail này khi người dùng chuyển đổi qua lại giữa các ngày hoặc khi đồng bộ Firebase.
+  - **Hiển thị trực quan trên giao diện:**
+    - **Giao diện Desktop (Table View):** Cột chuyên dụng `👤 Nhân viên thao tác` hiển thị rõ ràng từng dòng: `📥 [Tên NV] (giờ nhập)`, `✏️ [Tên NV] (giờ sửa)`, `🖨️ [Tên NV] x[số lần in] (giờ in)`.
+    - **Giao diện Điện thoại (Mobile Cards):** Footer banner nổi bật ở đáy mỗi thẻ toa: `👤 Nhập: [Tên]`, `✏️ Sửa: [Tên]`, `🖨️ In: [Tên] xN`.
+    - **Báo cáo In Bill (`PrintSummaryReportView`):** Cột `👤 Người in` trong bảng kê và huy hiệu người in trên thẻ điện thoại cho phép truy vết chính xác ai đã in từng bill cụ thể.

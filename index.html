@@ -48,6 +48,14 @@
             touch-action: manipulation;
         }
 
+        /* Thermal Bill Mobile Fit in Modal */
+        @media (max-width: 640px) {
+            .thermal-bill-mobile-fit {
+                zoom: 0.72;
+                -webkit-text-size-adjust: none;
+            }
+        }
+
         /* Thermal Printer Styling */
         #thermal-print-portal {
             position: fixed;
@@ -385,6 +393,35 @@
                 doctorFees: [],
                 medicines: []
             });
+            const [autoSaveStatus, setAutoSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+            const [lastSavedTime, setLastSavedTime] = useState('');
+
+            // Tự động lưu tức thì lên Firebase Realtime Database
+            const autoSaveToFirebase = async (partialData) => {
+                if (isReadOnly) return;
+                try {
+                    setAutoSaveStatus('saving');
+                    const dateKey = selectedDate.replace(/-/g, '');
+                    const nodeRef = db.ref(`daily_v2/${selectedBranch}/${dateKey}`);
+                    
+                    const payload = {
+                        ...partialData,
+                        branch: selectedBranch,
+                        date: selectedDate,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: userRole || 'staff'
+                    };
+                    await nodeRef.update(payload);
+
+                    const now = new Date();
+                    const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    setLastSavedTime(timeStr);
+                    setAutoSaveStatus('saved');
+                } catch (error) {
+                    console.error('Lỗi tự động lưu dữ liệu:', error);
+                    setAutoSaveStatus('error');
+                }
+            };
             const [monthlyData, setMonthlyData] = useState({});
             const [reportSelectedYear, setReportSelectedYear] = useState(() => {
                 return parseInt(new Date().toISOString().substring(0, 4)) || 2026;
@@ -945,15 +982,8 @@
 
             const saveDataTemp = async () => {
                 try {
-                    const dateKey = selectedDate.replace(/-/g, '');
-                    await db.ref(`daily_v2/${selectedBranch}/${dateKey}`).set({
-                        ...dailyData,
-                        branch: selectedBranch,
-                        date: selectedDate,
-                        updatedAt: new Date().toISOString(),
-                        updatedBy: userRole
-                    });
-                    alert('✅ Đã lưu dữ liệu tạm thành công!');
+                    await autoSaveToFirebase(dailyData);
+                    alert('✅ Dữ liệu đã được tự động lưu lên máy chủ!');
                 } catch (error) {
                     alert('❌ Lỗi khi lưu: ' + error.message);
                 }
@@ -1353,7 +1383,7 @@
                                 </div>
                             )}
 
-                            {/* Examination Fees */}
+                            {/* Examination Fees (Tự động lưu tức thì sau mỗi thao tác) */}
                             <ExaminationSection 
                                 key={`exam_${selectedBranch}_${selectedDate}`}
                                 examinations={dailyData.examinations || {}}
@@ -1362,13 +1392,24 @@
                                 onUpdateExaminations={({ examinations, patientDetails, prescriptions }) => {
                                     setDailyData(prev => ({
                                         ...prev,
-                                        examinations,
-                                        patientDetails,
-                                        prescriptions
+                                        examinations: examinations || {},
+                                        patientDetails: patientDetails || {},
+                                        prescriptions: prescriptions || []
                                     }));
+                                    autoSaveToFirebase({
+                                        examinations: examinations || {},
+                                        patientDetails: patientDetails || {},
+                                        prescriptions: prescriptions || []
+                                    });
                                 }}
-                                onChange={(exams) => setDailyData(prev => ({...prev, examinations: exams}))}
-                                onPatientDetailsChange={(details) => setDailyData(prev => ({...prev, patientDetails: details}))}
+                                onChange={(exams) => {
+                                    setDailyData(prev => ({...prev, examinations: exams || {}}));
+                                    autoSaveToFirebase({ examinations: exams || {} });
+                                }}
+                                onPatientDetailsChange={(details) => {
+                                    setDailyData(prev => ({...prev, patientDetails: details || {}}));
+                                    autoSaveToFirebase({ patientDetails: details || {} });
+                                }}
                                 readOnly={isReadOnly}
                                 customPrices={customPrices}
                                 saveCustomPrices={saveCustomPrices}
@@ -1380,7 +1421,10 @@
                             <DoctorFeesSection 
                                 key={`doc_${selectedBranch}_${selectedDate}`}
                                 doctorFees={dailyData.doctorFees || []}
-                                onChange={(fees) => setDailyData(prev => ({...prev, doctorFees: fees}))}
+                                onChange={(fees) => {
+                                    setDailyData(prev => ({...prev, doctorFees: fees || []}));
+                                    autoSaveToFirebase({ doctorFees: fees || [] });
+                                }}
                                 readOnly={isReadOnly}
                             />
 
@@ -1388,7 +1432,10 @@
                             <ExpensesSection 
                                 key={`exp_${selectedBranch}_${selectedDate}`}
                                 expenses={dailyData.expenses || []}
-                                onChange={(expenses) => setDailyData(prev => ({...prev, expenses: expenses}))}
+                                onChange={(expenses) => {
+                                    setDailyData(prev => ({...prev, expenses: expenses || []}));
+                                    autoSaveToFirebase({ expenses: expenses || [] });
+                                }}
                                 readOnly={isReadOnly}
                             />
 
@@ -1397,7 +1444,10 @@
                                 key={`med_${selectedBranch}_${selectedDate}`}
                                 medicines={dailyData.medicines || []}
                                 medicineList={medicineList}
-                                onChange={(medicines) => setDailyData(prev => ({...prev, medicines: medicines}))}
+                                onChange={(medicines) => {
+                                    setDailyData(prev => ({...prev, medicines: medicines || []}));
+                                    autoSaveToFirebase({ medicines: medicines || [] });
+                                }}
                                 readOnly={isReadOnly}
                             />
 
@@ -1481,24 +1531,45 @@
                                 </div>
                             </div>
 
-                            {/* Save Buttons */}
+                            {/* Trạng thái tự động lưu tức thì (Thay thế hoàn toàn nút Lưu Tạm) */}
                             <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={saveDataTemp}
-                                    disabled={isReadOnly}
-                                    className={`w-full py-3 rounded-lg font-bold text-lg transition shadow-sm border-2 ${
-                                        isReadOnly 
-                                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' 
-                                            : 'bg-white text-blue-600 border-blue-600 hover:bg-blue-50'
-                                    }`}
-                                >
-                                    {isReadOnly ? '🔒 Chế độ xem' : '💾 Lưu dữ liệu (Lưu tạm)'}
-                                </button>
+                                <div className="bg-emerald-50/90 border border-emerald-300 rounded-2xl p-3 sm:p-4 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                                    <div className="flex items-center gap-2.5">
+                                        <span className="text-2xl">
+                                            {autoSaveStatus === 'saving' ? '⏳' : autoSaveStatus === 'error' ? '⚠️' : '🟢'}
+                                        </span>
+                                        <div>
+                                            <div className="font-extrabold text-xs sm:text-sm text-emerald-950 flex items-center gap-1.5">
+                                                <span>
+                                                    {autoSaveStatus === 'saving' 
+                                                        ? 'Đang tự động lưu lên máy chủ...' 
+                                                        : autoSaveStatus === 'error' 
+                                                            ? 'Lỗi lưu tự động! Vui lòng kiểm tra kết nối mạng' 
+                                                            : 'Chế độ tự động lưu tức thì đang hoạt động'}
+                                                </span>
+                                                {autoSaveStatus === 'saved' && (
+                                                    <span className="text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md font-bold text-[11px]">
+                                                        ✓ Đã lưu an toàn
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] sm:text-xs text-emerald-700 font-medium">
+                                                Cứ mỗi toa nhập, sửa, xóa xong là hệ thống tự động lưu ngay, không lo mất khi tải lại trang.
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {lastSavedTime && (
+                                        <div className="shrink-0 text-xs font-bold text-emerald-800 bg-white/90 border border-emerald-200 px-3 py-1.5 rounded-xl shadow-2xs">
+                                            Lưu gần nhất: {lastSavedTime}
+                                        </div>
+                                    )}
+                                </div>
+
                                 {userRole === 'admin' && (
                                 <button
                                     onClick={saveData}
                                     disabled={isReadOnly}
-                                    className={`w-full py-4 rounded-lg font-bold text-lg transition shadow-lg transform ${
+                                    className={`w-full py-4 rounded-xl font-bold text-lg transition shadow-lg transform ${
                                         isReadOnly 
                                             ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
                                             : 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700 hover:scale-105'
@@ -3464,52 +3535,69 @@
             });
 
             return (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 overflow-y-auto">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-100 animate-fadeIn my-auto">
-                        {/* Header modal */}
-                        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-3.5 px-4 flex justify-between items-center">
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4 overflow-hidden">
+                    <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-[94vh] sm:h-auto sm:max-h-[92vh] overflow-hidden border border-gray-100 animate-fadeIn my-auto">
+                        {/* Header modal (Cố định ở trên) */}
+                        <div className="shrink-0 bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-3 px-4 flex justify-between items-center shadow-xs">
                             <div className="flex items-center gap-2">
                                 <span className="text-xl">🖨️</span>
-                                <h3 className="font-extrabold text-sm sm:text-base tracking-tight">In Bill Tính Tiền Toa Thuốc</h3>
+                                <div>
+                                    <h3 className="font-extrabold text-sm sm:text-base tracking-tight leading-tight">In Bill Tính Tiền Toa Thuốc</h3>
+                                    <div className="text-[11px] text-blue-100 font-semibold">
+                                        Toa #{bill.prescriptionNo || '---'} {bill.name ? `• Bé: ${bill.name}` : ''}
+                                    </div>
+                                </div>
                             </div>
                             <button
                                 type="button"
                                 onClick={onClose}
-                                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition text-sm font-bold"
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white transition text-sm font-bold"
                             >
                                 ✕
                             </button>
                         </div>
 
-                        {/* Tùy chọn khổ giấy & Ghi chú */}
-                        <div className="p-3.5 bg-gray-50 border-b border-gray-200 space-y-2.5">
-                            {/* Chọn khổ giấy */}
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-gray-700">Khổ giấy in nhiệt:</span>
-                                <div className="flex bg-gray-200 p-0.5 rounded-lg text-xs font-bold">
-                                    <button
-                                        type="button"
-                                        onClick={() => setPaperSize('80mm')}
-                                        className={`px-3 py-1 rounded-md transition ${
-                                            paperSize === '80mm'
-                                                ? 'bg-blue-600 text-white shadow-2xs'
-                                                : 'text-gray-700 hover:text-gray-900'
-                                        }`}
-                                    >
-                                        K80 (80mm)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setPaperSize('58mm')}
-                                        className={`px-3 py-1 rounded-md transition ${
-                                            paperSize === '58mm'
-                                                ? 'bg-blue-600 text-white shadow-2xs'
-                                                : 'text-gray-700 hover:text-gray-900'
-                                        }`}
-                                    >
-                                        K58 (58mm)
-                                    </button>
+                        {/* Tùy chọn khổ giấy & Ghi chú (Gọn gàng trên mobile) */}
+                        <div className="shrink-0 p-2.5 sm:p-3 bg-gray-50 border-b border-gray-200 space-y-2">
+                            {/* Chọn khổ giấy & In không dấu */}
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-bold text-gray-700">Khổ giấy:</span>
+                                    <div className="flex bg-gray-200 p-0.5 rounded-lg text-xs font-bold">
+                                        <button
+                                            type="button"
+                                            onClick={() => setPaperSize('80mm')}
+                                            className={`px-2.5 py-1 rounded-md transition ${
+                                                paperSize === '80mm'
+                                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                                    : 'text-gray-700 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            K80 (80mm)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPaperSize('58mm')}
+                                            className={`px-2.5 py-1 rounded-md transition ${
+                                                paperSize === '58mm'
+                                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                                    : 'text-gray-700 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            K58 (58mm)
+                                        </button>
+                                    </div>
                                 </div>
+
+                                <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={noAccent}
+                                        onChange={(e) => setNoAccent(e.target.checked)}
+                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+                                    />
+                                    <span>In không dấu</span>
+                                </label>
                             </div>
 
                             {/* Ghi chú / Lời dặn */}
@@ -3522,44 +3610,57 @@
                                     className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                             </div>
+                        </div>
 
-                            {/* Tùy chọn Tiếng Việt không dấu */}
-                            <div className="pt-0.5">
-                                <label className="flex items-center justify-between gap-2 p-2 bg-white rounded-lg border border-gray-200 cursor-pointer hover:bg-blue-50/50 transition select-none">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            checked={noAccent}
-                                            onChange={(e) => setNoAccent(e.target.checked)}
-                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
-                                        />
-                                        <span className="text-xs font-bold text-gray-700">In Tiếng Việt không dấu</span>
-                                    </div>
-                                    <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-medium">
-                                        Chống lỗi font máy in
-                                    </span>
-                                </label>
+                        {/* Xem trước mẫu bill (Tối ưu co giãn hiển thị trọn vẹn trên màn hình điện thoại) */}
+                        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-2 sm:p-4 bg-gray-200/70 flex justify-center items-start">
+                            <div className="w-full flex justify-center py-1">
+                                <div className="thermal-bill-mobile-fit shadow-xl border border-gray-300 rounded bg-white my-1 inline-block">
+                                    <div 
+                                        id="thermal-bill-preview"
+                                        style={{ background: '#ffffff', color: '#000000', display: 'inline-block' }}
+                                        dangerouslySetInnerHTML={{ __html: billHtml }}
+                                    />
+                                </div>
                             </div>
                         </div>
 
-                        {/* Xem trước mẫu bill */}
-                        <div className="p-4 bg-gray-100/80 flex justify-center max-h-[44vh] overflow-y-auto">
-                            <div className="bg-white shadow-md border border-gray-200 rounded-sm overflow-hidden inline-block">
-                                <div 
-                                    id="thermal-bill-preview"
-                                    style={{ background: '#ffffff', color: '#000000', display: 'inline-block' }}
-                                    dangerouslySetInnerHTML={{ __html: billHtml }}
-                                />
+                        {/* Nút bấm hành động (Luôn GHIM CHẶT ở đáy modal, nhân viên trên mobile thấy ngay không cần cuộn) */}
+                        <div className="shrink-0 p-3 sm:p-3.5 bg-white border-t border-gray-200 shadow-lg space-y-2">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleRawBTPrint}
+                                    disabled={isCapturing}
+                                    className={`flex-1 py-3 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-black text-sm sm:text-base rounded-xl shadow-md transition flex items-center justify-center gap-1.5 ${isCapturing ? 'opacity-70 cursor-wait' : ''}`}
+                                    title="Chụp ảnh tờ bill sắc nét có dấu tiếng Việt bắn thẳng sang app RawBT"
+                                >
+                                    <span>{isCapturing ? '⏳' : '⚡'}</span>
+                                    <span>{isCapturing ? 'Đang chụp ảnh bill...' : (noAccent ? 'In không dấu (RawBT)' : 'In Có Dấu (RawBT)')}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleExecutePrint}
+                                    className="px-3 py-3 bg-gray-700 hover:bg-gray-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow transition flex items-center justify-center gap-1 shrink-0"
+                                    title="In qua hộp thoại in của điện thoại / Laptop"
+                                >
+                                    <span>🖨️</span>
+                                    <span>In thường</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="px-3 py-3 bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 font-bold text-xs sm:text-sm rounded-xl transition shrink-0"
+                                >
+                                    Đóng
+                                </button>
                             </div>
-                        </div>
 
-                        {/* Nút bấm hành động */}
-                        <div className="p-3.5 bg-white border-t border-gray-200 space-y-2.5">
-                            <div className="flex flex-wrap gap-2 justify-end items-center">
+                            <div className="flex items-center justify-between gap-2 pt-0.5 text-[11px] text-gray-500">
                                 <button
                                     type="button"
                                     onClick={handleCopyText}
-                                    className={`px-3 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1 ${
+                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 ${
                                         copied 
                                             ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
                                             : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-200'
@@ -3567,45 +3668,11 @@
                                     title="Sao chép toàn bộ văn bản tờ bill để dán vào RawBT hoặc Zalo"
                                 >
                                     <span>{copied ? '✅' : '📋'}</span>
-                                    <span>{copied ? 'Đã chép text!' : 'Sao chép text'}</span>
+                                    <span>{copied ? 'Đã chép text' : 'Sao chép text'}</span>
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={onClose}
-                                    className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs sm:text-sm rounded-xl transition"
-                                >
-                                    Đóng
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleExecutePrint}
-                                    className="px-3.5 py-2.5 bg-gray-700 hover:bg-gray-800 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow transition flex items-center justify-center gap-1.5"
-                                    title="In qua hộp thoại in của điện thoại / Laptop (100% có dấu, sắc nét)"
-                                >
-                                    <span>🖨️</span>
-                                    <span>In thường (Có dấu)</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleRawBTPrint}
-                                    disabled={isCapturing}
-                                    className={`flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-1.5 ${isCapturing ? 'opacity-70 cursor-wait' : ''}`}
-                                    title="Chụp ảnh tờ bill sắc nét có dấu tiếng Việt bắn thẳng sang app RawBT"
-                                >
-                                    <span>{isCapturing ? '⏳' : '⚡'}</span>
-                                    <span>{isCapturing ? 'Đang chụp ảnh bill...' : (noAccent ? 'In không dấu (RawBT)' : 'In Có Dấu (RawBT)')}</span>
-                                </button>
-                            </div>
-                            <div className="text-[11px] text-gray-700 bg-emerald-50/80 border border-emerald-200 rounded-lg p-2.5 leading-relaxed space-y-1">
-                                <div className="font-bold text-emerald-900 flex items-center gap-1">
-                                    <span>✨</span>
-                                    <span>Lưu ý để in bill chuẩn đẹp & đủ chiều dài:</span>
-                                </div>
-                                <div className="text-gray-600 pl-4 space-y-0.5">
-                                    <div>• Nút <b>⚡ In Có Dấu (RawBT)</b>: Tự động chụp tờ bill thành ảnh sắc nét có dấu 100%, gửi qua app RawBT. Đã tối ưu độ cao gọn gàng, in trọn vẹn từ đầu đến cuối không bị đứt quãng.</div>
-                                    <div>• <b>Chọn đúng khổ giấy</b>: Nếu máy in của anh là máy nhỏ khổ 58mm, vui lòng chọn nút <b>K58 (58mm)</b> ở trên để máy in không bị quá tải bộ nhớ. Nếu là máy in khổ lớn thì chọn <b>K80 (80mm)</b>.</div>
-                                    <div>• Hoặc bấm nút <b>🖨️ In thường (Có dấu)</b> để in trực tiếp qua hộp thoại in của điện thoại Android.</div>
-                                </div>
+                                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">
+                                    ⚡ In RawBT: Tự cuốn trọn vẹn, không cắt cụt
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -4731,6 +4798,7 @@
             const [billToPrint, setBillToPrint] = useState(null);
             const [sortMode, setSortMode] = useState('stt_asc'); // 'stt_asc' (1->N) | 'stt_desc' (N->1) | 'entry' (mới nhập)
             const [sortSuccessMessage, setSortSuccessMessage] = useState('');
+            const [addSuccessMsg, setAddSuccessMsg] = useState('');
 
             // Đồng bộ dữ liệu mỗi khi props thay đổi từ Firebase
             useEffect(() => {
@@ -4790,19 +4858,17 @@
                 const updated = [newRow, ...localPrescriptions];
                 commitPrescriptions(updated);
 
-                // Reset form nhập và đóng lại form
-                setNewStt('');
-                setNewPrice('');
-                setNewName('');
-                setNewPaymentMethod('cash');
-                setIsAddingNew(false);
-
                 // Hiệu ứng highlight toa vừa lưu
                 setHighlightedRowId(newRow.id);
                 setTimeout(() => setHighlightedRowId(null), 2500);
 
-                // Mở giao diện in bill nếu chọn Lưu & In
                 if (shouldPrint) {
+                    // Mở giao diện in bill nếu chọn Lưu & In
+                    setIsAddingNew(false);
+                    setNewStt('');
+                    setNewPrice('');
+                    setNewName('');
+                    setNewPaymentMethod('cash');
                     setBillToPrint({
                         prescriptionNo: newRow.prescriptionNo,
                         name: newRow.name,
@@ -4811,6 +4877,18 @@
                         branch: selectedBranch,
                         date: selectedDate
                     });
+                } else {
+                    // Cứ mỗi toa lưu xong là xong! Giữ form mở, reset các ô nhập và tự động focus lại ô STT để nhập tiếp
+                    setNewStt('');
+                    setNewPrice('');
+                    setNewName('');
+                    setNewPaymentMethod('cash');
+                    setAddSuccessMsg(`Đã lưu xong toa #${newRow.prescriptionNo || 'mới'} (${newRow.price}k)!`);
+                    setTimeout(() => setAddSuccessMsg(''), 3000);
+                    setTimeout(() => {
+                        const el = document.getElementById('new-rx-stt-input');
+                        if (el) el.focus();
+                    }, 80);
                 }
             };
 
@@ -4908,20 +4986,26 @@
                 setTimeout(() => setSortSuccessMessage(''), 3000);
             };
 
-            // Mở form thêm toa mới
+            // Mở form thêm toa mới (tự động cuộn đến form và focus ô nhập trên điện thoại)
             const handleAddRow = (customStt = null) => {
                 setIsAddingNew(true);
+                setTimeout(() => {
+                    const formBox = document.getElementById('new-rx-form-box');
+                    if (formBox) {
+                        formBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 30);
                 if (customStt !== null) {
                     setNewStt(customStt.toString());
                     setTimeout(() => {
                         const el = document.getElementById('new-rx-price-input');
                         if (el) el.focus();
-                    }, 50);
+                    }, 80);
                 } else {
                     setTimeout(() => {
                         const el = document.getElementById('new-rx-stt-input');
                         if (el) el.focus();
-                    }, 50);
+                    }, 80);
                 }
             };
 
@@ -5126,14 +5210,42 @@
                         )}
                     </div>
 
-                    {/* FORM NHẬP TOA MỚI (CHỈ HIỂN THỊ KHI NHẤN NÚT) */}
+                    {/* FORM NHẬP TOA MỚI (TỐI ƯU CỰC KỲ DỄ DÙNG TRÊN ĐIỆN THOẠI) */}
                     {!readOnly && isAddingNew && (
-                        <div className="mt-3 bg-gradient-to-br from-blue-50/95 via-indigo-50/70 to-purple-50/60 rounded-2xl p-2.5 sm:p-3.5 border-2 border-blue-300 shadow-sm animate-fadeIn">
-                            <form onSubmit={handleSaveNewPrescription} className="space-y-2">
+                        <div id="new-rx-form-box" className="mt-3 bg-gradient-to-br from-blue-50/95 via-indigo-50/70 to-purple-50/60 rounded-2xl p-3 sm:p-4 border-2 border-blue-400 shadow-md animate-fadeIn">
+                            <form onSubmit={(e) => handleSaveNewPrescription(e, false)} className="space-y-2.5">
+                                <div className="flex items-center justify-between pb-1 border-b border-blue-200/80">
+                                    <span className="font-extrabold text-xs sm:text-sm text-blue-900 flex items-center gap-1.5">
+                                        <span>➕</span>
+                                        <span>Nhập toa khám (Cứ mỗi toa lưu xong là xong)</span>
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsAddingNew(false);
+                                            setNewStt('');
+                                            setNewPrice('');
+                                            setNewName('');
+                                            setAddSuccessMsg('');
+                                        }}
+                                        className="text-gray-500 hover:text-gray-800 text-xs sm:text-sm font-bold px-2 py-1 rounded-lg hover:bg-gray-200/60 transition"
+                                        title="Đóng form"
+                                    >
+                                        ✕ Đóng
+                                    </button>
+                                </div>
+
+                                {addSuccessMsg && (
+                                    <div className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 rounded-xl px-3 py-1.5 flex items-center gap-1.5 animate-fadeIn">
+                                        <span>✅</span>
+                                        <span>{addSuccessMsg} Đã tự động lưu tức thì vào hệ thống.</span>
+                                    </div>
+                                )}
+
                                 {/* DÒNG 1: SỐ TT TOA, TÊN BÉ, SỐ TIỀN TRÊN CÙNG 1 DÒNG */}
                                 <div className="flex items-center gap-1.5 w-full">
                                     {/* 1. Số TT toa */}
-                                    <div className="w-16 sm:w-20 shrink-0">
+                                    <div className="w-18 sm:w-22 shrink-0">
                                         <input
                                             id="new-rx-stt-input"
                                             type="text"
@@ -5147,8 +5259,8 @@
                                                     if (nameEl) nameEl.focus();
                                                 }
                                             }}
-                                            placeholder="STT"
-                                            className={`w-full text-center font-black text-sm sm:text-base py-2 px-1 rounded-xl border bg-white focus:outline-none focus:ring-2 transition ${
+                                            placeholder="Số toa"
+                                            className={`w-full text-center font-black text-sm sm:text-base py-2.5 px-1 rounded-xl border bg-white focus:outline-none focus:ring-2 transition min-h-[44px] ${
                                                 isNewSttDup 
                                                     ? 'border-red-400 ring-2 ring-red-300 text-red-700' 
                                                     : 'border-gray-300 focus:ring-blue-500 text-gray-900'
@@ -5172,12 +5284,12 @@
                                                 }
                                             }}
                                             placeholder="Tên bé (tùy chọn)"
-                                            className="w-full text-xs sm:text-sm py-2 px-2.5 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                            className="w-full text-xs sm:text-sm py-2.5 px-3 rounded-xl border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition min-h-[44px]"
                                         />
                                     </div>
 
                                     {/* 3. Số tiền (k) */}
-                                    <div className="w-24 sm:w-28 shrink-0 relative">
+                                    <div className="w-26 sm:w-32 shrink-0 relative">
                                         <input
                                             id="new-rx-price-input"
                                             type="number"
@@ -5188,13 +5300,13 @@
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
                                                     e.preventDefault();
-                                                    handleSaveNewPrescription();
+                                                    handleSaveNewPrescription(e, false);
                                                 }
                                             }}
                                             placeholder="Tiền k"
-                                            className="w-full text-right font-black text-sm sm:text-base py-2 pr-6 pl-2 rounded-xl border border-gray-300 bg-white text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                            className="w-full text-right font-black text-sm sm:text-base py-2.5 pr-7 pl-2 rounded-xl border border-gray-300 bg-white text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition min-h-[44px]"
                                         />
-                                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
+                                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-blue-500 pointer-events-none">
                                             k
                                         </span>
                                     </div>
@@ -5206,14 +5318,14 @@
                                     </p>
                                 )}
 
-                                {/* DÒNG 2: TIỀN MẶT/CK, LƯU TOA TRÊN CÙNG 1 DÒNG */}
-                                <div className="flex items-center gap-1.5 w-full pt-0.5">
+                                {/* DÒNG 2: TIỀN MẶT/CK, LƯU TOA */}
+                                <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 w-full pt-0.5">
                                     {/* 2 nút chọn Tiền mặt / Chuyển khoản */}
-                                    <div className="flex items-center gap-1 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
                                         <button
                                             type="button"
                                             onClick={() => setNewPaymentMethod('cash')}
-                                            className={`flex-1 py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition border-2 ${
+                                            className={`flex-1 py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition border-2 min-h-[42px] ${
                                                 newPaymentMethod === 'cash'
                                                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                                                     : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50'
@@ -5227,7 +5339,7 @@
                                         <button
                                             type="button"
                                             onClick={() => setNewPaymentMethod('transfer')}
-                                            className={`flex-1 py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition border-2 ${
+                                            className={`flex-1 py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition border-2 min-h-[42px] ${
                                                 newPaymentMethod === 'transfer'
                                                     ? 'bg-purple-600 text-white border-purple-600 shadow-2xs'
                                                     : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-50'
@@ -5239,42 +5351,28 @@
                                         </button>
                                     </div>
 
-                                    {/* Nút Lưu toa */}
-                                    <button
-                                        type="button"
-                                        onClick={(e) => handleSaveNewPrescription(e, false)}
-                                        className="px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 shrink-0"
-                                        title="Lưu toa"
-                                    >
-                                        <span>💾</span>
-                                        <span>Lưu</span>
-                                    </button>
+                                    {/* Các nút Lưu toa & In */}
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleSaveNewPrescription(e, false)}
+                                            className="py-2.5 px-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 min-h-[42px]"
+                                            title="Lưu toa vào hệ thống và sẵn sàng nhập tiếp toa sau"
+                                        >
+                                            <span>💾</span>
+                                            <span>Lưu toa</span>
+                                        </button>
 
-                                    {/* Nút Lưu & In bill */}
-                                    <button
-                                        type="button"
-                                        onClick={(e) => handleSaveNewPrescription(e, true)}
-                                        className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 shrink-0"
-                                        title="Lưu toa và mở in bill ngay"
-                                    >
-                                        <span>🖨️</span>
-                                        <span>Lưu & In</span>
-                                    </button>
-
-                                    {/* Nút Đóng form */}
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setIsAddingNew(false);
-                                            setNewStt('');
-                                            setNewPrice('');
-                                            setNewName('');
-                                        }}
-                                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-xl transition text-xs shrink-0"
-                                        title="Đóng form nhập"
-                                    >
-                                        ✕
-                                    </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleSaveNewPrescription(e, true)}
+                                            className="py-2.5 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white rounded-xl font-black text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-1 min-h-[42px]"
+                                            title="Lưu toa và mở in bill ngay"
+                                        >
+                                            <span>🖨️</span>
+                                            <span>Lưu & In</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -5480,8 +5578,8 @@
                         </div>
                     ) : (
                         <>
-                            {/* 1. GIAO DIỆN ĐIỆN THOẠI: DẠNG THẺ (CARD VIEW) CỰC KỲ DỄ THAO TÁC */}
-                            <div className="block sm:hidden space-y-2 mt-2">
+                            {/* 1. GIAO DIỆN ĐIỆN THOẠI: DẠNG THẺ (CARD VIEW) TỐI ƯU CỰC KỲ DỄ BẤM */}
+                            <div className="block sm:hidden space-y-2.5 mt-2">
                                 {filteredPrescriptions.map((row) => {
                                     const sttStr = String(row.prescriptionNo || '').trim();
                                     const isDup = sttStr !== '' && duplicateSttSet.has(sttStr);
@@ -5490,21 +5588,21 @@
 
                                     if (isEditing) {
                                         return (
-                                            <div key={row.id} id={`row-${row.id}`} className="p-3 bg-blue-50/90 border-2 border-blue-400 rounded-2xl space-y-2 shadow-sm">
+                                            <div key={row.id} id={`row-${row.id}`} className="p-3.5 bg-blue-50/95 border-2 border-blue-400 rounded-2xl space-y-2.5 shadow-sm">
                                                 <div className="flex justify-between items-center pb-1 border-b border-blue-200">
-                                                    <span className="font-extrabold text-blue-900 text-xs">✏️ Chỉnh sửa toa</span>
+                                                    <span className="font-extrabold text-blue-900 text-xs sm:text-sm">✏️ Chỉnh sửa toa #{row.prescriptionNo || '?'}</span>
                                                     <div className="flex gap-1.5">
                                                         <button
                                                             type="button"
                                                             onClick={() => handleSaveEdit(row.id)}
-                                                            className="px-3 py-1 bg-blue-600 text-white font-bold text-xs rounded-lg shadow-2xs"
+                                                            className="px-3.5 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-xl shadow-2xs active:scale-95"
                                                         >
                                                             ✓ Lưu
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={handleCancelEdit}
-                                                            className="px-2.5 py-1 bg-gray-200 text-gray-700 font-bold text-xs rounded-lg"
+                                                            className="px-3.5 py-1.5 bg-gray-200 text-gray-700 font-bold text-xs rounded-xl"
                                                         >
                                                             ✕ Hủy
                                                         </button>
@@ -5518,7 +5616,7 @@
                                                             inputMode="numeric"
                                                             value={editForm.prescriptionNo}
                                                             onChange={(e) => setEditForm(prev => ({ ...prev, prescriptionNo: e.target.value }))}
-                                                            className="w-full text-center font-black py-1.5 px-2 text-sm border rounded-lg bg-white"
+                                                            className="w-full text-center font-black py-2 px-2 text-sm border rounded-xl bg-white min-h-[40px]"
                                                         />
                                                     </div>
                                                     <div className="col-span-8">
@@ -5529,7 +5627,7 @@
                                                             inputMode="numeric"
                                                             value={editForm.price}
                                                             onChange={(e) => setEditForm(prev => ({ ...prev, price: e.target.value }))}
-                                                            className="w-full font-black py-1.5 px-2 text-sm text-right border rounded-lg bg-white text-blue-700"
+                                                            className="w-full font-black py-2 px-2 text-sm text-right border rounded-xl bg-white text-blue-700 min-h-[40px]"
                                                         />
                                                     </div>
                                                     <div className="col-span-12">
@@ -5539,28 +5637,30 @@
                                                             value={editForm.name}
                                                             onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
                                                             placeholder="Tên bé (tùy chọn)"
-                                                            className="w-full py-1.5 px-2 text-xs border rounded-lg bg-white"
+                                                            className="w-full py-2 px-2.5 text-xs sm:text-sm border rounded-xl bg-white min-h-[40px]"
                                                         />
                                                     </div>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                                <div className="grid grid-cols-2 gap-2 pt-1">
                                                     <button
                                                         type="button"
                                                         onClick={() => setEditForm(prev => ({ ...prev, paymentMethod: 'cash' }))}
-                                                        className={`py-1.5 text-xs font-bold rounded-lg border ${
-                                                            editForm.paymentMethod === 'cash' ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-800'
+                                                        className={`py-2 text-xs font-bold rounded-xl border min-h-[40px] flex items-center justify-center gap-1 ${
+                                                            editForm.paymentMethod === 'cash' ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' : 'bg-white text-emerald-800 border-emerald-300'
                                                         }`}
                                                     >
-                                                        💵 Tiền mặt
+                                                        <span>💵 Tiền mặt</span>
+                                                        {editForm.paymentMethod === 'cash' && <span>✓</span>}
                                                     </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => setEditForm(prev => ({ ...prev, paymentMethod: 'transfer' }))}
-                                                        className={`py-1.5 text-xs font-bold rounded-lg border ${
-                                                            editForm.paymentMethod === 'transfer' ? 'bg-purple-600 text-white' : 'bg-white text-purple-800'
+                                                        className={`py-2 text-xs font-bold rounded-xl border min-h-[40px] flex items-center justify-center gap-1 ${
+                                                            editForm.paymentMethod === 'transfer' ? 'bg-purple-600 text-white border-purple-600 shadow-2xs' : 'bg-white text-purple-800 border-purple-300'
                                                         }`}
                                                     >
-                                                        💳 Chuyển khoản
+                                                        <span>💳 Chuyển khoản</span>
+                                                        {editForm.paymentMethod === 'transfer' && <span>✓</span>}
                                                     </button>
                                                 </div>
                                             </div>
@@ -5575,14 +5675,14 @@
                                                 isHighlighted
                                                     ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-300'
                                                     : row.paymentMethod === 'transfer'
-                                                        ? 'bg-purple-50/40 border-purple-200/70'
+                                                        ? 'bg-purple-50/50 border-purple-200'
                                                         : 'bg-white border-gray-200'
-                                            } shadow-2xs space-y-2`}
+                                            } shadow-xs space-y-2`}
                                         >
-                                            {/* Hàng 1: STT badge + Tên bé + Nút sửa/xóa */}
-                                            <div className="flex items-center justify-between gap-1.5">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className={`inline-flex items-center justify-center min-w-[36px] px-2.5 py-1 rounded-xl font-black text-sm ${
+                                            {/* Hàng 1: STT badge + Tên bé + Tiền khám */}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                    <span className={`inline-flex items-center justify-center min-w-[40px] px-2.5 py-1.5 rounded-xl font-black text-sm shadow-2xs shrink-0 ${
                                                         isDup 
                                                             ? 'bg-red-500 text-white' 
                                                             : 'bg-blue-600 text-white'
@@ -5590,16 +5690,42 @@
                                                         #{row.prescriptionNo || '?'}
                                                     </span>
                                                     {isDup && (
-                                                        <span className="text-[10px] text-red-600 font-extrabold bg-red-100 px-1.5 py-0.5 rounded-md">
+                                                        <span className="text-[10px] text-red-600 font-extrabold bg-red-100 px-1.5 py-0.5 rounded-md shrink-0">
                                                             ⚠️ Trùng
                                                         </span>
                                                     )}
-                                                    <span className="font-bold text-gray-800 text-sm truncate max-w-[170px]">
+                                                    <span className="font-bold text-gray-900 text-sm truncate leading-snug">
                                                         {row.name ? row.name : <span className="text-gray-400 font-normal italic text-xs">Không tên</span>}
                                                     </span>
                                                 </div>
 
-                                                <div className="flex items-center gap-1">
+                                                <div className="text-right shrink-0">
+                                                    <span className="text-base font-black text-blue-800">
+                                                        {row.price !== '' ? `${Number(row.price).toLocaleString()}k` : '0k'}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Hàng 2: Nút đổi hình thức TM/CK + Nút In bill, Sửa, Xóa rõ ràng */}
+                                            <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-gray-100">
+                                                {/* Nút TM / CK với touch target thoải mái */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => !readOnly && handleTogglePayment(row.id)}
+                                                    disabled={readOnly}
+                                                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1 shadow-2xs active:scale-95 min-h-[38px] ${
+                                                        row.paymentMethod === 'transfer'
+                                                            ? 'bg-purple-600 text-white'
+                                                            : 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                                                    } ${readOnly ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
+                                                    title="Chạm để đổi Tiền mặt / Chuyển khoản"
+                                                >
+                                                    <span>{row.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}</span>
+                                                    <span className="text-[11px] font-extrabold">{row.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt'}</span>
+                                                </button>
+
+                                                {/* Bộ nút thao tác: In bill, Sửa, Xóa */}
+                                                <div className="flex items-center gap-1.5">
                                                     <button
                                                         type="button"
                                                         onClick={() => setBillToPrint({
@@ -5610,17 +5736,18 @@
                                                             branch: selectedBranch,
                                                             date: selectedDate
                                                         })}
-                                                        className="p-1 text-emerald-600 hover:bg-emerald-50 rounded text-xs"
-                                                        title="In bill toa này"
+                                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-xs transition flex items-center gap-1 min-h-[38px]"
+                                                        title="In bill tính tiền toa này"
                                                     >
-                                                        🖨️
+                                                        <span>🖨️</span>
+                                                        <span>In bill</span>
                                                     </button>
                                                     {!readOnly && (
                                                         <>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleStartEdit(row)}
-                                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs"
+                                                                className="p-1.5 text-blue-600 hover:bg-blue-50 border border-blue-200 rounded-xl min-w-[38px] min-h-[38px] flex items-center justify-center text-sm active:scale-95 transition"
                                                                 title="Sửa toa này"
                                                             >
                                                                 ✏️
@@ -5628,44 +5755,14 @@
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleRemoveRow(row.id)}
-                                                                className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded text-xs"
+                                                                className="p-1.5 text-red-500 hover:bg-red-50 border border-red-200 rounded-xl min-w-[38px] min-h-[38px] flex items-center justify-center text-sm active:scale-95 transition"
                                                                 title="Xóa toa này"
                                                             >
-                                                                ✕
+                                                                🗑️
                                                             </button>
                                                         </>
                                                     )}
                                                 </div>
-                                            </div>
-
-                                            {/* Hàng 2: Tiền khám + Nút đổi hình thức TM/CK (1 chạm) */}
-                                            <div className="flex items-center justify-between pt-1 border-t border-gray-100">
-                                                <div className="flex items-baseline gap-1">
-                                                    <span className="text-xs text-gray-400 font-medium">Tiền:</span>
-                                                    <span className="text-base font-black text-blue-800">
-                                                        {row.price !== '' ? `${Number(row.price).toLocaleString()}k` : '0k'}
-                                                    </span>
-                                                    {parseFloat(row.price || 0) > 0 && (
-                                                        <span className="text-[11px] text-gray-400">
-                                                            ({(parseFloat(row.price) * 1000).toLocaleString()}đ)
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => !readOnly && handleTogglePayment(row.id)}
-                                                    disabled={readOnly}
-                                                    className={`px-2.5 py-1 rounded-xl font-bold text-xs transition flex items-center gap-1 shadow-2xs active:scale-95 ${
-                                                        row.paymentMethod === 'transfer'
-                                                            ? 'bg-purple-600 text-white'
-                                                            : 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                                                    } ${readOnly ? 'cursor-default opacity-90' : 'cursor-pointer'}`}
-                                                    title="Chạm để đổi Tiền mặt / Chuyển khoản"
-                                                >
-                                                    <span>{row.paymentMethod === 'transfer' ? '💳 CK' : '💵 TM'}</span>
-                                                    <span className="text-[11px]">{row.paymentMethod === 'transfer' ? 'Chuyển khoản' : 'Tiền mặt'}</span>
-                                                </button>
                                             </div>
                                         </div>
                                     );
@@ -5856,6 +5953,19 @@
                             bill={billToPrint}
                             onClose={() => setBillToPrint(null)}
                         />
+                    )}
+
+                    {/* Nút nổi Thêm Toa trên điện thoại - Giúp nhân viên đang cuộn ở dưới đáy danh sách vẫn bấm thêm toa được ngay */}
+                    {!readOnly && (
+                        <button
+                            type="button"
+                            onClick={() => handleAddRow()}
+                            className="sm:hidden fixed bottom-5 right-4 z-40 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-sm px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 border-2 border-white/60 active:scale-95 transition"
+                            title="Thêm toa khám mới"
+                        >
+                            <span className="text-lg">➕</span>
+                            <span>Thêm toa</span>
+                        </button>
                     )}
                 </div>
             );

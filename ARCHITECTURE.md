@@ -195,7 +195,21 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - Hỗ trợ xem lại mẫu bill và in lại ngay từ bảng kê.
 
 ## 5. Những lưu ý khi chỉnh sửa
-- **Tránh ghi đè State:** Khi cần cập nhật State từ bên trong Component con, luôn dùng Functional State Update để tránh race-condition (Ví dụ: `setDailyData(prev => ({...prev, examinations: exams}))`).
-- **Telegram Bot:** Token bot và Chat ID hiện đang được hardcode trong hàm `TELEGRAM`.
 - **CSS Classes:** Giao diện rất phụ thuộc vào Tailwind CSS, khi sửa đổi UI cần chú ý dùng đúng utility classes của Tailwind.
+
+### Tự Động Lưu Tức Thì (Bỏ nút Lưu Tạm) & Tối Ưu Mobile
+- **Loại bỏ hoàn toàn nút Lưu Tạm thủ công:** Trước đây nhân viên nhập nhiều toa nhưng quên bấm nút "Lưu tạm" ở dưới cùng trang, dẫn đến việc mất dữ liệu khi trình duyệt tự tải lại hoặc chuyển ứng dụng. Hệ thống đã được nâng cấp sang **Cơ chế Tự Động Lưu Tức Thì (Instant Auto-Save)**:
+  - Hàm `autoSaveToFirebase` trong `App` tự động ghi nhận và đẩy mọi thay đổi (thêm toa mới, sửa toa, xóa toa, đổi hình thức thanh toán Tiền mặt/Chuyển khoản, sắp xếp STT, thay đổi lương bác sĩ, chi phí, thuốc) lên Firebase Realtime Database node `daily_v2/{selectedBranch}/{dateKey}` bằng `.update()`.
+  - Thay thế nút "Lưu tạm" ở cuối trang bằng thanh trạng thái tự động lưu trực quan: `🟢 Chế độ tự động lưu tức thì đang hoạt động` kèm thời gian lưu gần nhất (`Lưu gần nhất: HH:mm:ss`).
+  - Nút "📨 Gửi báo cáo cuối ngày" chỉ hiển thị cho tài khoản Admin khi cần chốt dữ liệu.
+- **Tối ưu hóa thao tác nhập toa liên tục trên Mobile:**
+  - Khi nhân viên bấm "Lưu toa" (hoặc bấm Enter trên ô nhập số tiền), toa lập tức được lưu vào Firebase, hiển thị thông báo `✅ Đã lưu xong toa #...`, các ô nhập tự động xóa trắng và con trỏ chuột tự động focus lại vào ô STT để nhân viên nhập tiếp toa tiếp theo mà không phải mở lại form nhiều lần.
+  - Bổ sung nút nổi **FAB (Floating Action Button) ➕ Thêm toa** ở góc dưới bên phải màn hình điện thoại, giúp nhân viên đang cuộn ở bất cứ đâu trong danh sách toa cũng có thể mở form và tự động cuộn lên vị trí nhập liệu với 1 chạm.
+  - Các ô nhập dữ liệu đều có `inputMode="numeric"`, chiều cao tối thiểu đạt chuẩn `44px`, chữ to rõ.
+  - Thẻ toa khám dạng card trên điện thoại được mở rộng diện tích chạm: nút `🖨️ In bill` màu xanh nổi bật (chiều cao >= 38px), nút chuyển đổi `💵 TM` / `💳 CK` to rõ, nút `✏️ Sửa` và `🗑️ Xóa` tách biệt tránh bấm nhầm.
+- **Tối ưu hóa hộp thoại In Bill RawBT trên Mobile:**
+  - Hộp thoại `BillPrintModal` được cấu trúc dạng cột linh hoạt (`h-[94vh] flex flex-col`) khớp trọn vẹn màn hình điện thoại.
+  - **Thanh nút bấm hành động ghim chặt ở đáy modal (Sticky Footer):** Nút chính `⚡ In Có Dấu (RawBT)` màu xanh lá siêu nổi bật, nút `🖨️ In thường` và nút `Đóng` luôn luôn hiển thị ngay trước mắt nhân viên ở chân màn hình, không bị đẩy ra ngoài vùng nhìn thấy, không cần phải cuộn chuột hay vuốt màn hình để tìm nút in.
+  - **Xem trước bill vừa vặn màn hình điện thoại:** Áp dụng lớp CSS `.thermal-bill-mobile-fit` (`zoom: 0.72` trên màn hình <= 640px) giúp tờ bill to 1.5x hiển thị vừa khít chiều ngang màn hình điện thoại, không bị tràn viền hay che khuất thông tin. Trong khi đó, ảnh chụp thật gửi sang RawBT vẫn giữ nguyên 100% kích thước chuẩn 576px/384px sắc nét tuyệt đối.
+
 

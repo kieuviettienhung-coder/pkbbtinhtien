@@ -277,24 +277,17 @@
                 msg += `💰 Tiền khám: *${fmt(exam)}* (${cases} ca)\n`;
                 msg += `   💵 Tiền mặt: ${fmt(examCash)} | 💳 Chuyển khoản: ${fmt(examTransfer)}\n`;
 
-                if (isNgaBay) {
-                    if (medicine > 0) {
-                        msg += `💊 Tiền thuốc bán: ${fmt(medicine)} (chuyển nộp về Thốt Nốt)\n`;
-                    }
+                if (isNgaBay && medicine > 0) {
+                    msg += `💊 Tiền nhập thuốc từ Thốt Nốt: -${fmt(medicine)}\n`;
                 }
 
                 if (isThotNot) {
                     if (transferredFromNB > 0) {
-                        msg += `📦 Tiền thuốc nhận từ Ngã Bảy: +${fmt(transferredFromNB)} (cộng vào Thốt Nốt)\n`;
+                        msg += `📦 Tiền bán thuốc cho Ngã Bảy: +${fmt(transferredFromNB)}\n`;
                     }
                     if (medicine > 0) {
                         msg += `💊 Tiền thuốc tại quầy Thốt Nốt: +${fmt(medicine)}\n`;
                     }
-                    const tnTotalRevenue = exam + transferredFromNB + medicine;
-                    const tnRevenueCash = examCash + transferredFromNB + medicine;
-                    const tnRevenueTransfer = examTransfer;
-                    msg += `🌟 Tổng thu Thốt Nốt: *${fmt(tnTotalRevenue)}* (Khám + Thuốc)\n`;
-                    msg += `   💵 Tiền mặt: ${fmt(tnRevenueCash)} | 💳 Chuyển khoản: ${fmt(tnRevenueTransfer)}\n`;
                 }
 
                 msg += `👨‍⚕️ Lương BS: ${fmt(doctor)}\n`;
@@ -349,7 +342,11 @@
                     const validMeds = medList.filter(m => m && m.name && parseFloat(m.quantity || 0) > 0);
                     if (validMeds.length > 0) {
                         const medDetails = validMeds.map(m => `${escapeMd(m.name)} (${m.quantity})`);
-                        msg += `   ┗ 💊 Thuốc bán: ${medDetails.join(', ')}\n`;
+                        if (isNgaBay) {
+                            msg += `   ┗ 💊 Thuốc nhập từ TN: ${medDetails.join(', ')}\n`;
+                        } else {
+                            msg += `   ┗ 💊 Thuốc bán: ${medDetails.join(', ')}\n`;
+                        }
                     }
                 }
 
@@ -366,20 +363,13 @@
             }
 
             if (hasData && branchesData.length > 1) {
-                // Tổng thu toàn hệ thống = Tổng tiền khám + Tổng tiền thuốc bán ra
-                const gTotalRevenue = gExam + gMedicine;
-                const gTotalRevenueCash = gExamCash + gMedicine;
-                const gTotalRevenueTransfer = gExamTransfer;
-
                 msg += '\n━━━━━━━━━━━━━━━━━━━━\n';
                 msg += '📈 *TỔNG 2 CHI NHÁNH*\n';
                 msg += `💰 Tiền khám: *${fmt(gExam)}* (${gCases} ca)\n`;
                 msg += `   💵 Tiền mặt: ${fmt(gExamCash)} | 💳 Chuyển khoản: ${fmt(gExamTransfer)}\n`;
-                if (gMedicine > 0) {
-                    msg += `💊 Tiền thuốc: *+${fmt(gMedicine)}* (💵 TM - toàn bộ cộng vào Thốt Nốt)\n`;
+                if (ngaBayMedicine > 0) {
+                    msg += `💊 Tiền thuốc: Huề (NB trả TN ${fmt(ngaBayMedicine)})\n`;
                 }
-                msg += `🌟 TỔNG THU (Khám + Thuốc): *${fmt(gTotalRevenue)}*\n`;
-                msg += `   💵 Tiền mặt: ${fmt(gTotalRevenueCash)} | 💳 Chuyển khoản: ${fmt(gTotalRevenueTransfer)}\n`;
                 msg += `👨‍⚕️ Lương BS: ${fmt(gDoctor)}\n`;
                 msg += `💸 Chi phí: ${fmt(gExpense)}\n`;
                 msg += '━━━━━━━━━━━━━━━━━━━━\n';

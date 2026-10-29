@@ -222,12 +222,11 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
 - **Báo cáo doanh thu qua Telegram (`buildDailyReport` & `sendTelegram`):**
   - **Tách bạch 100% Tiền mặt & Chuyển khoản:** Tất cả các chỉ số (Tiền khám, Còn lại của từng chi nhánh, Tổng thu 2 chi nhánh, Tổng còn lại 2 chi nhánh) đều được bóc tách rõ ràng theo `💵 Tiền mặt` và `💳 Chuyển khoản`.
   - **Chuẩn hóa luồng tiền thuốc giữa 2 chi nhánh:**
-    - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc bán ở Ngã Bảy được mang từ Thốt Nốt sang.
-    - Tại Ngã Bảy: Bán thuốc xong chuyển nộp tiền thuốc về Thốt Nốt (`💊 Tiền thuốc bán: Xk (chuyển nộp về Thốt Nốt)`), trừ ra khỏi quỹ Ngã Bảy.
-    - Tại Thốt Nốt: Nhận tiền thuốc từ Ngã Bảy (`📦 Tiền thuốc nhận từ Ngã Bảy: +Xk (cộng vào Thốt Nốt)`).
-    - Dòng **Tổng thu Thốt Nốt** thể hiện đầy đủ: `🌟 Tổng thu Thốt Nốt: Xk (Khám + Thuốc)` kèm chi tiết TM/CK.
+    - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc cấp cho Ngã Bảy mang từ Thốt Nốt sang.
+    - Tại Ngã Bảy: Trừ tiền nhập thuốc từ Thốt Nốt (`💊 Tiền nhập thuốc từ Thốt Nốt: -Xk`), trích ra từ tiền khám để trả Thốt Nốt.
+    - Tại Thốt Nốt: Được hưởng tiền bán thuốc cho Ngã Bảy (`📦 Tiền bán thuốc cho Ngã Bảy: +Xk`), cộng vào nguồn thu của Thốt Nốt.
   - **Tổng hợp 2 chi nhánh chuẩn xác & Cân bằng tài chính:**
-    - Hiển thị rõ dòng `💊 Tiền thuốc: +Xk (💵 TM - toàn bộ cộng vào Thốt Nốt)` và `🌟 TỔNG THU (Khám + Thuốc): Xk (💵 TM, 💳 CK)`.
+    - Tiền thuốc giữa 2 chi nhánh bù trừ nội bộ lẫn nhau (`💊 Tiền thuốc: Huề (NB trả TN Xk)`), không bị cộng trùng (double-count) vào tổng doanh thu.
     - Dòng `🏆 TỔNG CÒN LẠI: Xk (💵 TM: Xk | 💳 CK: Xk)` cân bằng chính xác từng đồng với tổng số tiền mặt và tiền chuyển khoản thực tế của 2 chi nhánh (`netCash + netTransfer = net`).
   - **Chống lỗi định dạng Markdown & Chia nhỏ tin nhắn:**
     - Tự động lọc ký tự đặc biệt (`*`, `_`, `[`, `]`) trong tên bệnh nhân, bác sĩ, chi phí để tránh lỗi cú pháp parse Markdown của Telegram.

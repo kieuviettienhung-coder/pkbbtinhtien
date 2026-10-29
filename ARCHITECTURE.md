@@ -225,9 +225,9 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
     - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc cấp cho Ngã Bảy mang từ Thốt Nốt sang.
     - Tại Ngã Bảy: Trừ tiền nhập thuốc từ Thốt Nốt (`💊 Tiền nhập thuốc từ Thốt Nốt: -Xk (sổ sách cuối tháng)`), trích ra từ tiền khám để trả Thốt Nốt.
     - Tại Thốt Nốt: Tiền bán thuốc cho Ngã Bảy (`📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +Xk`) không tính là tiền mặt trong ngày mà là sổ sách để tính toán cuối tháng. Tiền mặt trong ngày của Thốt Nốt phản ánh đúng tiền thực thu chi trong két (`✅ Còn lại trong ngày`).
-  - **Tối ưu danh sách chi tiết:**
-    - **Phần chuyển khoản không ghi tên bệnh nhân:** Dòng chuyển khoản chỉ liệt kê danh sách số toa (VD: `💳 Chuyển khoản: 380k (Toa 16, Toa 31, Toa 46)`) để tiện đối soát ngân hàng; trong danh sách bệnh nhân, các ca chuyển khoản hiển thị `Toa X (CK)` không kèm tên bé.
-    - **Phần thuốc không ghi từng loại:** Lược bỏ toàn bộ danh sách liệt kê chi tiết từng loại thuốc, giữ cho tin nhắn ngắn gọn, trực quan và chuyên nghiệp.
+  - **Tối ưu hóa nội dung báo cáo tinh gọn & chuyên nghiệp:**
+    - **Không liệt kê tên bệnh nhân:** Báo cáo doanh thu chỉ tập trung vào tổng quan tài chính (tổng tiền khám, số ca, số tiền mặt, số tiền chuyển khoản kèm số toa CK để đối soát); không hiển thị danh sách tên bệnh nhân.
+    - **Phần thuốc không ghi từng loại:** Lược bỏ toàn bộ danh sách liệt kê chi tiết từng loại thuốc, giữ cho tin nhắn ngắn gọn, trực quan và dễ đọc.
   - **Tổng hợp 2 chi nhánh chuẩn xác & Cân bằng tài chính:**
     - Tiền thuốc giữa 2 chi nhánh bù trừ nội bộ lẫn nhau (`💊 Tiền thuốc: Huề (NB trả TN Xk trên sổ sách)`), không bị cộng trùng vào tổng doanh thu.
     - Dòng `🏆 TỔNG CÒN LẠI` tách bạch: `💵 Tiền mặt trong ngày` (thực tế kiểm két), `💳 Chuyển khoản`, và `📦 Tiền thuốc trên sổ sách`.

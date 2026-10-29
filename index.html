@@ -312,50 +312,7 @@
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                 }
 
-                // Chi tiết bệnh nhân: phần chuyển khoản không ghi tên bệnh nhân
-                let detailMsgs = [];
-                if (rxList.length > 0) {
-                    const grouped = {};
-                    rxList.forEach(p => {
-                        if (!p) return;
-                        const pr = p.price || '0';
-                        if (!grouped[pr]) grouped[pr] = [];
-                        grouped[pr].push(p);
-                    });
-                    Object.keys(grouped).sort((a,b) => parseFloat(a) - parseFloat(b)).forEach(price => {
-                        const pts = grouped[price].filter(p => p.name || p.prescriptionNo);
-                        if (pts.length > 0) {
-                            detailMsgs.push(`[${price}k]: ` + pts.map(p => {
-                                if (p.paymentMethod === 'transfer') {
-                                    return `Toa ${escapeMd(p.prescriptionNo)} (CK)`;
-                                }
-                                return `${escapeMd(p.name || 'Toa ' + p.prescriptionNo)} (Toa ${escapeMd(p.prescriptionNo)})`;
-                            }).join(', '));
-                        }
-                    });
-                } else if (data.patientDetails) {
-                    Object.entries(data.patientDetails).forEach(([price, patients]) => {
-                        const ptArr = toArray(patients);
-                        if (ptArr.length > 0) {
-                            const validPatients = ptArr.filter(p => p && (p.name || p.prescriptionNo));
-                            if (validPatients.length > 0) {
-                                detailMsgs.push(`[${price}k]: ` + validPatients.map(p => {
-                                    if (p.paymentMethod === 'transfer') {
-                                        return `Toa ${escapeMd(p.prescriptionNo)} (CK)`;
-                                    }
-                                    return `${escapeMd(p.name || 'Toa ' + p.prescriptionNo)} (Toa ${escapeMd(p.prescriptionNo)})`;
-                                }).join(', '));
-                            }
-                        }
-                    });
-                }
-                if (detailMsgs.length > 0) {
-                    let ptStr = detailMsgs.join('; ');
-                    if (ptStr.length > 1200) {
-                        ptStr = ptStr.slice(0, 1190) + '... (còn tiếp)';
-                    }
-                    msg += `   ┗ Bệnh nhân: ${ptStr}\n`;
-                }
+                // Báo cáo doanh thu không liệt kê tên bệnh nhân (theo yêu cầu)
 
                 if (docList.length > 0) {
                     const details = docList.filter(f => f && f.doctor && parseFloat(f.amount) > 0).map(f => `${escapeMd(f.doctor)} ${fmt(parseFloat(f.amount))}`);

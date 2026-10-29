@@ -219,6 +219,16 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - **Tự động hợp nhất trên Desktop (`sm:` >= 640px):** Giao diện tự động dàn thành 1 thanh hàng ngang liền mạch chuyên nghiệp.
   - **Quy tắc CSS toàn cục & Inline styles:** Bổ sung `box-sizing: border-box;` và `input { min-width: 0; }` trong thẻ `<style>` toàn trang cùng inline style `boxSizing: 'border-box', minWidth: 0, width: '100%'` trên tất cả các ô nhập liệu, triệt tiêu hoàn toàn nguy cơ tràn vỡ flexbox trên các trình duyệt di động (iOS Safari, Android Chrome).
   - **Thẻ Card View & Chế độ sửa:** Tên bé trong danh sách toa được tối ưu `flex-1 min-w-0 truncate` và ô tiền `shrink-0` cố định; các ô nhập trong chế độ sửa toa trên mobile đều áp dụng `minWidth: 0` chống tràn lưới.
-
-
-
+- **Báo cáo doanh thu qua Telegram (`buildDailyReport` & `sendTelegram`):**
+  - **Tách bạch 100% Tiền mặt & Chuyển khoản:** Tất cả các chỉ số (Tiền khám, Còn lại của từng chi nhánh, Tổng thu 2 chi nhánh, Tổng còn lại 2 chi nhánh) đều được bóc tách rõ ràng theo `💵 Tiền mặt` và `💳 Chuyển khoản`.
+  - **Chuẩn hóa luồng tiền thuốc giữa 2 chi nhánh:**
+    - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc bán ở Ngã Bảy được mang từ Thốt Nốt sang.
+    - Tại Ngã Bảy: Bán thuốc xong chuyển nộp tiền thuốc về Thốt Nốt (`💊 Tiền thuốc bán: Xk (chuyển nộp về Thốt Nốt)`), trừ ra khỏi quỹ Ngã Bảy.
+    - Tại Thốt Nốt: Nhận tiền thuốc từ Ngã Bảy (`📦 Tiền thuốc nhận từ Ngã Bảy: +Xk (cộng vào Thốt Nốt)`).
+    - Dòng **Tổng thu Thốt Nốt** thể hiện đầy đủ: `🌟 Tổng thu Thốt Nốt: Xk (Khám + Thuốc)` kèm chi tiết TM/CK.
+  - **Tổng hợp 2 chi nhánh chuẩn xác & Cân bằng tài chính:**
+    - Hiển thị rõ dòng `💊 Tiền thuốc: +Xk (💵 TM - toàn bộ cộng vào Thốt Nốt)` và `🌟 TỔNG THU (Khám + Thuốc): Xk (💵 TM, 💳 CK)`.
+    - Dòng `🏆 TỔNG CÒN LẠI: Xk (💵 TM: Xk | 💳 CK: Xk)` cân bằng chính xác từng đồng với tổng số tiền mặt và tiền chuyển khoản thực tế của 2 chi nhánh (`netCash + netTransfer = net`).
+  - **Chống lỗi định dạng Markdown & Chia nhỏ tin nhắn:**
+    - Tự động lọc ký tự đặc biệt (`*`, `_`, `[`, `]`) trong tên bệnh nhân, bác sĩ, chi phí để tránh lỗi cú pháp parse Markdown của Telegram.
+    - Cơ chế tự động cắt nhỏ tin nhắn (chunks <= 4000 ký tự) đảm bảo gửi thành công 100% kể cả trong những ngày cao điểm có hàng trăm bệnh nhân.

@@ -269,24 +269,28 @@
                 // Còn lại:
                 // Tiền bán thuốc cho Ngã Bảy KHÔNG tính là tiền mặt trong ngày của Thốt Nốt (chỉ là sổ sách cuối tháng)
                 let netCash = 0, netTransfer = examTransfer;
-                let net = 0;
+                let dailyTotalInDay = 0;
+                let grandTotal = 0;
 
                 if (isNgaBay) {
-                    net = exam - doctor - expense - medicine;
                     netCash = examCash - doctor - expense - medicine;
+                    dailyTotalInDay = netCash + netTransfer;
+                    grandTotal = dailyTotalInDay;
                 } else if (isThotNot) {
                     // Thốt Nốt: Tiền mặt trong ngày chỉ tính thu chi thực tế tại Thốt Nốt (không tính tiền bán thuốc cho NB)
                     netCash = examCash - doctor - expense - medicine;
-                    net = (exam - doctor - expense - medicine) + transferredFromNB;
+                    dailyTotalInDay = netCash + netTransfer;
+                    grandTotal = dailyTotalInDay + transferredFromNB;
                 } else {
-                    net = exam - doctor - expense;
                     netCash = examCash - doctor - expense;
+                    dailyTotalInDay = netCash + netTransfer;
+                    grandTotal = dailyTotalInDay;
                 }
 
                 msg += `\n${name}\n`;
                 msg += `💰 Tiền khám: *${fmt(exam)}* (${cases} ca)\n`;
 
-                // Phần chuyển khoản không ghi tên bệnh nhân
+                // Phần chuyển khoản không ghi tên bệnh nhân, chỉ ghi số toa
                 const ckNote = transferPrescriptions.length > 0 ? ` (${transferPrescriptions.join(', ')})` : '';
                 msg += `   💵 Tiền mặt: ${fmt(examCash)} | 💳 Chuyển khoản: ${fmt(examTransfer)}${ckNote}\n`;
 
@@ -295,20 +299,20 @@
 
                 if (isNgaBay && medicine > 0) {
                     msg += `💊 Tiền nhập thuốc từ Thốt Nốt: -${fmt(medicine)} (sổ sách cuối tháng)\n`;
-                    msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
+                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyTotalInDay)}*\n`;
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                 } else if (isThotNot) {
                     if (medicine > 0) {
                         msg += `💊 Tiền thuốc tại quầy Thốt Nốt: ${fmt(medicine)}\n`;
                     }
-                    const dailyCashNet = examCash - doctor - expense - medicine;
-                    msg += `${dailyCashNet >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyCashNet)}* (💵 TM: ${fmt(dailyCashNet)}, 💳 CK: ${fmt(netTransfer)})\n`;
+                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyTotalInDay)}*\n`;
+                    msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                     if (transferredFromNB > 0) {
                         msg += `📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +${fmt(transferredFromNB)}\n`;
-                        msg += `👉 Tổng gồm thuốc (sổ sách): *${fmt(net)}*\n`;
+                        msg += `👉 Tổng gồm thuốc (sổ sách): *${fmt(grandTotal)}*\n`;
                     }
                 } else {
-                    msg += `${net >= 0 ? '✅' : '🔴'} Còn lại: *${fmt(net)}*\n`;
+                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyTotalInDay)}*\n`;
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                 }
 
@@ -331,7 +335,7 @@
                 gExpense += expense;
                 gMedicine += medicine;
                 gCases += cases;
-                gNet += net;
+                gNet += grandTotal;
                 gNetCash += netCash;
                 gNetTransfer += netTransfer;
             }

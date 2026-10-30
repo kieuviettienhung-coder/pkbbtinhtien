@@ -239,14 +239,30 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
     - Cơ chế tự động cắt nhỏ tin nhắn (chunks <= 4000 ký tự) đảm bảo gửi thành công 100% kể cả trong những ngày cao điểm có hàng trăm bệnh nhân.
 
 ### Quản lý Tài khoản Đa Chi Nhánh & Nhật Ký Thao Tác (Audit Trail)
-- **Quản lý Tài khoản cho Admin (`AccountManagementModal` & `accounts_v2`):**
-  - **Firebase Node `accounts_v2/{accountId}`:** Lưu trữ danh sách tài khoản độc lập gồm: `id`, `username`, `password`, `name` (tên hiển thị / tên nhân viên), `role` (`admin` | `staff`), `branch` (`all` | `nga-bay` | `thot-not`), `createdAt`, `updatedAt`.
-  - **Chức năng dành riêng cho Admin:**
-    - Tạo tài khoản mới cho từng chi nhánh (chọn chi nhánh Ngã Bảy, Thốt Nốt, hoặc Toàn quyền).
-    - Đổi mật khẩu trực tiếp cho bất kỳ tài khoản nào với tính năng bật/tắt ẩn hiện mật khẩu và đồng bộ tức thì lên Firebase.
-    - Xóa tài khoản nhân viên (có cơ chế bảo vệ tài khoản Master Admin `admin` không thể bị xóa).
-    - Bộ lọc danh sách tài khoản theo chi nhánh (`Tất cả`, `Ngã Bảy`, `Thốt Nốt`, `Quản trị Admin`).
-    - Nút "Khởi tạo tài khoản mẫu" tự động nạp các tài khoản chuẩn ban đầu nếu hệ thống chưa có dữ liệu.
+- **Quản lý Toàn Bộ Tài Khoản Đăng Nhập Cho Admin (`AccountManagementModal` & `accounts_v2`):**
+  - **Hiển thị 100% tài khoản có thể đăng nhập vào ứng dụng:**
+    - Toàn bộ tài khoản trong hệ thống đều được nạp và quản lý tập trung tại `accounts_v2`:
+      1. `👑 Admin Tổng` (`admin` / `admin@2025`): Toàn quyền quản trị, quản lý doanh thu, thuốc, tài khoản, cấu hình hệ thống.
+      2. `👨‍💼 Admin Ngã Bảy` (`admin_ngabay` / `adminngabay123`): Quản lý chi nhánh Ngã Bảy.
+      3. `👨‍💻 NV Ngã Bảy` (`nv_ngabay` / `ngabay2026`): Nhân viên chi nhánh Ngã Bảy.
+      4. `👩‍💻 NV Thốt Nốt` (`nv_thotnot` / `thuyduong123`): Nhân viên chi nhánh Thốt Nốt.
+      5. `👩‍💻 Chị Thảo` (`chi_thao` / `thao123`): Nhân viên chi nhánh Thốt Nốt.
+      6. `👩‍💻 Chị Út` (`chi_ut` / `ut123`): Nhân viên chi nhánh Thốt Nốt.
+      7. `👩‍💻 Thùy Dương` (`thuy_duong` / `duong123`): Nhân viên chi nhánh Thốt Nốt.
+      8. Cùng mọi tài khoản nhân viên / bác sĩ mới do Admin tạo thêm.
+  - **Firebase Node `accounts_v2/{accountId}`:** Lưu trữ danh sách tài khoản độc lập gồm: `id`, `username`, `password`, `name` (tên hiển thị / tên nhân viên), `role` (`admin` | `staff`), `branch` (`all` | `nga-bay` | `thot-not`), `isSystem` (đánh dấu tài khoản mặc định), `createdAt`, `updatedAt`.
+  - **Chức năng nâng cao dành riêng cho Admin:**
+    - **Sắp xếp thứ bậc thông minh:** Admin Tổng luôn ở vị trí số 1 trên cùng (màu vàng kim sang trọng), tiếp theo là Admin Ngã Bảy, sau đó nhóm theo chi nhánh và xếp thứ tự A-Z theo tên.
+    - **Tìm kiếm tức thì (Realtime Search):** Tìm nhanh theo Tên nhân viên, Tên đăng nhập `@username`, Mật khẩu hoặc Tên chi nhánh.
+    - **Bộ lọc tabs:** `Tất cả`, `🏥 Ngã Bảy`, `🏥 Thốt Nốt`, `👑 Quản trị`.
+    - **Xem & Sao chép mật khẩu 1 chạm (📋):** Bật/tắt xem mật khẩu (`👁️`/`🙈`) hoặc bấm nút sao chép để copy mật khẩu trực tiếp vào bộ nhớ tạm.
+    - **Đổi mật khẩu an toàn & Đồng bộ đa điểm:**
+      - Hỗ trợ đổi mật khẩu cho bất kỳ tài khoản nào.
+      - Kiểm tra tính duy nhất của mật khẩu trên toàn hệ thống (chống trùng lặp).
+      - Tự động đồng bộ sang cả `accounts_v2`, `passwords_v2` và `settings_v2` nếu là tài khoản hệ thống cốt lõi, bảo đảm đăng nhập không bao giờ lệch pha.
+    - **Bảo vệ tài khoản hệ thống (`🔒 Mặc định (Không xóa)`):**
+      - Các tài khoản mặc định của hệ thống (`isSystem: true` hoặc Admin Tổng) được khóa chức năng xóa, chỉ cho phép đổi mật khẩu, triệt tiêu nguy cơ xóa nhầm làm gián đoạn đăng nhập.
+      - Các tài khoản nhân viên tự tạo (`👤 Tự tạo`) có nút `🗑️ Xóa tài khoản` kèm thông báo xác nhận an toàn.
   - **Cơ chế Đăng nhập Siêu Tốc Bằng Mật Khẩu (Password-Only Login):**
     - Màn hình Đăng nhập chỉ hiển thị duy nhất 1 ô nhập: **`🔐 Mật khẩu truy cập`**. Nhân viên không cần nhớ hay gõ bất kỳ Tên đăng nhập (`username`) nào.
     - Admin tự đặt sẵn **Tên nhân viên** và **Mật khẩu riêng biệt** cho từng người trong mục "Quản lý tài khoản".

@@ -685,17 +685,77 @@
                     if (snap.val()) setThotNotPassword(snap.val());
                 });
 
-                // Danh sách tài khoản hệ thống (accounts_v2)
+                // Danh sách tài khoản hệ thống (accounts_v2) - Tự động bảo toàn và hiển thị tất cả tài khoản đăng nhập
                 db.ref('accounts_v2').on('value', (snap) => {
                     const val = snap.val();
+                    let list = [];
                     if (val) {
-                        const list = Object.entries(val).map(([id, item]) => ({
+                        list = Object.entries(val).map(([id, item]) => ({
                             id,
                             ...item
                         }));
-                        setAccountsList(list);
+                    }
+
+                    // Tự động kiểm tra và bảo toàn 4 tài khoản hệ thống cốt lõi
+                    const hasMaster = list.some(a => a.id === 'acc_admin_master' || a.username === 'admin');
+                    const hasAdminNb = list.some(a => a.id === 'acc_admin_nb' || a.username === 'admin_ngabay');
+                    const hasStaffNb = list.some(a => a.id === 'acc_staff_nb' || a.username === 'nv_ngabay');
+                    const hasStaffTn = list.some(a => a.id === 'acc_staff_tn' || a.username === 'nv_thotnot');
+
+                    if (!hasMaster || !hasAdminNb || !hasStaffNb || !hasStaffTn) {
+                        const missing = {};
+                        if (!hasMaster) {
+                            missing['acc_admin_master'] = {
+                                id: 'acc_admin_master',
+                                username: 'admin',
+                                name: 'Admin Tổng',
+                                password: adminPassword || 'admin@2025',
+                                branch: 'all',
+                                role: 'admin',
+                                isSystem: true,
+                                createdAt: new Date().toISOString()
+                            };
+                        }
+                        if (!hasAdminNb) {
+                            missing['acc_admin_nb'] = {
+                                id: 'acc_admin_nb',
+                                username: 'admin_ngabay',
+                                name: 'Admin Ngã Bảy',
+                                password: adminNgaBayPassword || 'adminngabay123',
+                                branch: 'nga-bay',
+                                role: 'admin',
+                                isSystem: true,
+                                createdAt: new Date().toISOString()
+                            };
+                        }
+                        if (!hasStaffNb) {
+                            missing['acc_staff_nb'] = {
+                                id: 'acc_staff_nb',
+                                username: 'nv_ngabay',
+                                name: 'NV Ngã Bảy',
+                                password: ngaBayPassword || 'ngabay2026',
+                                branch: 'nga-bay',
+                                role: 'staff',
+                                isSystem: true,
+                                createdAt: new Date().toISOString()
+                            };
+                        }
+                        if (!hasStaffTn) {
+                            missing['acc_staff_tn'] = {
+                                id: 'acc_staff_tn',
+                                username: 'nv_thotnot',
+                                name: 'NV Thốt Nốt',
+                                password: thotNotPassword || 'thuyduong123',
+                                branch: 'thot-not',
+                                role: 'staff',
+                                isSystem: true,
+                                createdAt: new Date().toISOString()
+                            };
+                        }
+                        db.ref('accounts_v2').update(missing);
+                        setAccountsList([...list, ...Object.values(missing)]);
                     } else {
-                        setAccountsList([]);
+                        setAccountsList(list);
                     }
                 });
 
@@ -3441,7 +3501,7 @@
             return lines.join('\n');
         }
 
-        // Modal Quản Lý Tài Khoản Cho Admin (Tạo / Đổi mật khẩu / Xóa tài khoản của 2 chi nhánh)
+        // Modal Quản Lý Tài Khoản Cho Admin (Xem tất cả tài khoản, Tạo mới, Đổi mật khẩu, Phân quyền)
         function AccountManagementModal({ 
             accounts = [], 
             adminPassword, 
@@ -3451,6 +3511,7 @@
             onClose 
         }) {
             const [filterBranch, setFilterBranch] = useState('all'); // 'all' | 'nga-bay' | 'thot-not' | 'admin'
+            const [searchKeyword, setSearchKeyword] = useState('');
             const [isAdding, setIsAdding] = useState(false);
             const [newUsername, setNewUsername] = useState('');
             const [newName, setNewName] = useState('');
@@ -3460,6 +3521,7 @@
             const [formError, setFormError] = useState('');
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [showPasswordsMap, setShowPasswordsMap] = useState({});
+            const [copiedAccId, setCopiedAccId] = useState(null);
 
             // State đổi mật khẩu cho từng tài khoản
             const [editingPassAccId, setEditingPassAccId] = useState(null);
@@ -3468,16 +3530,17 @@
 
             // Tự động seed 4 tài khoản mặc định nếu danh sách trống
             const handleSeedDefaultAccounts = async () => {
-                if (!confirm('Khởi tạo 4 tài khoản hệ thống mặc định (Admin Tổng, Admin Ngã Bảy, NV Ngã Bảy, NV Thốt Nốt)?')) return;
+                if (!confirm('Khởi tạo / Khôi phục 4 tài khoản hệ thống mặc định (Admin Tổng, Admin Ngã Bảy, NV Ngã Bảy, NV Thốt Nốt)?')) return;
                 try {
                     const defaults = {
                         'acc_admin_master': {
                             id: 'acc_admin_master',
                             username: 'admin',
                             name: 'Admin Tổng',
-                            password: adminPassword || '123456',
+                            password: adminPassword || 'admin@2025',
                             branch: 'all',
                             role: 'admin',
+                            isSystem: true,
                             createdAt: new Date().toISOString()
                         },
                         'acc_admin_nb': {
@@ -3487,29 +3550,32 @@
                             password: adminNgaBayPassword || 'adminngabay123',
                             branch: 'nga-bay',
                             role: 'admin',
+                            isSystem: true,
                             createdAt: new Date().toISOString()
                         },
                         'acc_staff_nb': {
                             id: 'acc_staff_nb',
                             username: 'nv_ngabay',
                             name: 'NV Ngã Bảy',
-                            password: ngaBayPassword || 'ngabay123',
+                            password: ngaBayPassword || 'ngabay2026',
                             branch: 'nga-bay',
                             role: 'staff',
+                            isSystem: true,
                             createdAt: new Date().toISOString()
                         },
                         'acc_staff_tn': {
                             id: 'acc_staff_tn',
                             username: 'nv_thotnot',
                             name: 'NV Thốt Nốt',
-                            password: thotNotPassword || 'thotnot123',
+                            password: thotNotPassword || 'thuyduong123',
                             branch: 'thot-not',
                             role: 'staff',
+                            isSystem: true,
                             createdAt: new Date().toISOString()
                         }
                     };
-                    await db.ref('accounts_v2').set(defaults);
-                    alert('✅ Đã tạo các tài khoản hệ thống ban đầu thành công!');
+                    await db.ref('accounts_v2').update(defaults);
+                    alert('✅ Đã cập nhật 4 tài khoản hệ thống mặc định thành công!');
                 } catch (err) {
                     alert('❌ Lỗi khởi tạo: ' + err.message);
                 }
@@ -3517,6 +3583,21 @@
 
             const toggleShowPassword = (accId) => {
                 setShowPasswordsMap(prev => ({ ...prev, [accId]: !prev[accId] }));
+            };
+
+            const copyPasswordToClipboard = (acc) => {
+                const pass = String(acc.password || '');
+                if (!pass) return;
+                if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(pass).then(() => {
+                        setCopiedAccId(acc.id);
+                        setTimeout(() => setCopiedAccId(null), 2000);
+                    }).catch(() => {
+                        prompt('Mật khẩu của ' + acc.name + ':', pass);
+                    });
+                } else {
+                    prompt('Mật khẩu của ' + acc.name + ':', pass);
+                }
             };
 
             // Tạo tài khoản mới
@@ -3613,7 +3694,7 @@
                 try {
                     await db.ref(`accounts_v2/${acc.id}/password`).set(trimmedNewPass);
 
-                    // Đồng bộ nếu là tài khoản hệ thống cũ
+                    // Đồng bộ nếu là tài khoản hệ thống cốt lõi
                     if (acc.username === 'admin' || acc.id === 'acc_admin_master') {
                         await db.ref('passwords_v2/admin').set(trimmedNewPass);
                         await db.ref('settings_v2/adminPassword').set(trimmedNewPass);
@@ -3639,13 +3720,13 @@
 
             // Xóa tài khoản
             const handleDeleteAccount = async (acc) => {
-                if (acc.username === 'admin' || acc.id === 'acc_admin_master' || (acc.role === 'admin' && acc.branch === 'all')) {
-                    alert('⚠️ Không thể xóa tài khoản Admin Tổng!');
+                if (acc.isSystem || acc.username === 'admin' || acc.id === 'acc_admin_master' || (acc.role === 'admin' && acc.branch === 'all')) {
+                    alert('⚠️ Đây là tài khoản hệ thống mặc định, không thể xóa! Bạn chỉ có thể đổi mật khẩu.');
                     return;
                 }
 
                 const branchName = acc.branch === 'nga-bay' ? 'Ngã Bảy' : acc.branch === 'thot-not' ? 'Thốt Nốt' : 'Hệ thống';
-                if (!confirm(`Bạn có chắc chắn muốn XÓA tài khoản:\n\n👤 ${acc.name} (@${acc.username})\n🏥 Chi nhánh: ${branchName}\n\nThao tác này không thể hoàn tác!`)) {
+                if (!confirm(`Bạn có chắc chắn muốn XÓA tài khoản nhân viên:\n\n👤 ${acc.name} (@${acc.username})\n🏥 Chi nhánh: ${branchName}\n\nSau khi xóa, tài khoản này sẽ KHÔNG THỂ đăng nhập vào ứng dụng nữa!`)) {
                     return;
                 }
 
@@ -3657,13 +3738,54 @@
                 }
             };
 
-            // Lọc danh sách theo tab
+            // Lọc và Tìm kiếm
+            const keyword = String(searchKeyword || '').trim().toLowerCase();
             const filteredAccounts = accounts.filter(acc => {
-                if (filterBranch === 'all') return true;
-                if (filterBranch === 'nga-bay') return acc.branch === 'nga-bay';
-                if (filterBranch === 'thot-not') return acc.branch === 'thot-not';
-                if (filterBranch === 'admin') return acc.role === 'admin' || acc.branch === 'all';
+                // Tab filter
+                if (filterBranch === 'nga-bay' && acc.branch !== 'nga-bay') return false;
+                if (filterBranch === 'thot-not' && acc.branch !== 'thot-not') return false;
+                if (filterBranch === 'admin' && !(acc.role === 'admin' || acc.branch === 'all')) return false;
+
+                // Keyword search
+                if (keyword) {
+                    const matchName = String(acc.name || '').toLowerCase().includes(keyword);
+                    const matchUser = String(acc.username || '').toLowerCase().includes(keyword);
+                    const matchPass = String(acc.password || '').toLowerCase().includes(keyword);
+                    const matchBranch = acc.branch === 'nga-bay' ? 'ngã bảy nga bay'.includes(keyword) : acc.branch === 'thot-not' ? 'thốt nốt thot not'.includes(keyword) : true;
+                    return matchName || matchUser || matchPass || matchBranch;
+                }
                 return true;
+            });
+
+            // Sắp xếp thứ tự thông minh:
+            // 1. Admin Tổng (Master) luôn đứng đầu
+            // 2. Admin Ngã Bảy đứng thứ hai
+            // 3. Các tài khoản Quản trị khác
+            // 4. Tài khoản chi nhánh Ngã Bảy (Hệ thống trước, nhân viên sau)
+            // 5. Tài khoản chi nhánh Thốt Nốt (Hệ thống trước, nhân viên sau)
+            const sortedAccounts = [...filteredAccounts].sort((a, b) => {
+                const aIsMaster = a.username === 'admin' || a.id === 'acc_admin_master' || (a.role === 'admin' && a.branch === 'all');
+                const bIsMaster = b.username === 'admin' || b.id === 'acc_admin_master' || (b.role === 'admin' && b.branch === 'all');
+                if (aIsMaster && !bIsMaster) return -1;
+                if (!aIsMaster && bIsMaster) return 1;
+
+                const aIsAdminNb = a.username === 'admin_ngabay' || a.id === 'acc_admin_nb';
+                const bIsAdminNb = b.username === 'admin_ngabay' || b.id === 'acc_admin_nb';
+                if (aIsAdminNb && !bIsAdminNb) return -1;
+                if (!aIsAdminNb && bIsAdminNb) return 1;
+
+                // Sắp xếp theo Chi nhánh: Ngã Bảy trước, Thốt Nốt sau
+                if (a.branch !== b.branch) {
+                    if (a.branch === 'nga-bay') return -1;
+                    if (b.branch === 'nga-bay') return 1;
+                }
+
+                // Tài khoản hệ thống cốt lõi xếp trước
+                if (a.isSystem && !b.isSystem) return -1;
+                if (!a.isSystem && b.isSystem) return 1;
+
+                // Tên theo thứ tự A-Z
+                return String(a.name || '').localeCompare(String(b.name || ''), 'vi');
             });
 
             const countNgaBay = accounts.filter(a => a.branch === 'nga-bay').length;
@@ -3672,28 +3794,50 @@
 
             return (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full flex flex-col max-h-[92vh] overflow-hidden border border-gray-100 animate-fadeIn my-auto">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[92vh] overflow-hidden border border-gray-100 animate-fadeIn my-auto">
                         {/* Header Modal */}
-                        <div className="shrink-0 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 text-white p-4 sm:p-5 flex justify-between items-center shadow-sm">
-                            <div className="flex items-center gap-2.5">
-                                <span className="text-2xl sm:text-3xl">👥</span>
+                        <div className="shrink-0 bg-gradient-to-r from-purple-700 via-indigo-700 to-blue-700 text-white p-4 sm:p-5 flex justify-between items-center shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-2xl shadow-inner">
+                                    👥
+                                </div>
                                 <div>
-                                    <h2 className="text-base sm:text-xl font-black tracking-tight">Quản Lý Tài Khoản Chi Nhánh</h2>
-                                    <p className="text-purple-100 text-xs font-medium">Tạo, đổi mật khẩu & xóa tài khoản Ngã Bảy và Thốt Nốt</p>
+                                    <h2 className="text-base sm:text-xl font-black tracking-tight">Quản Lý Tài Khoản Đăng Nhập Hệ Thống</h2>
+                                    <p className="text-purple-100 text-xs font-medium">Toàn bộ tài khoản có thể đăng nhập vào ứng dụng (Ngã Bảy & Thốt Nốt)</p>
                                 </div>
                             </div>
                             <button
                                 type="button"
                                 onClick={onClose}
-                                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center font-bold text-lg transition active:scale-95"
+                                className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center font-bold text-lg transition active:scale-95"
                                 title="Đóng"
                             >
                                 ✕
                             </button>
                         </div>
 
-                        {/* Top Bar: Tabs & Thêm tài khoản */}
-                        <div className="p-3 sm:p-4 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2.5">
+                        {/* Thanh thống kê nhanh */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-gray-50 border-b border-gray-200 text-xs">
+                            <div className="bg-white p-2.5 rounded-xl border border-gray-200 flex items-center justify-between">
+                                <span className="text-gray-500 font-medium">Tổng tài khoản:</span>
+                                <span className="font-black text-purple-700 text-sm">{accounts.length}</span>
+                            </div>
+                            <div className="bg-white p-2.5 rounded-xl border border-amber-200 flex items-center justify-between">
+                                <span className="text-amber-800 font-medium">👑 Quản trị:</span>
+                                <span className="font-black text-amber-700 text-sm">{countAdmin}</span>
+                            </div>
+                            <div className="bg-white p-2.5 rounded-xl border border-emerald-200 flex items-center justify-between">
+                                <span className="text-emerald-800 font-medium">🏥 Ngã Bảy:</span>
+                                <span className="font-black text-emerald-700 text-sm">{countNgaBay}</span>
+                            </div>
+                            <div className="bg-white p-2.5 rounded-xl border border-indigo-200 flex items-center justify-between">
+                                <span className="text-indigo-800 font-medium">🏥 Thốt Nốt:</span>
+                                <span className="font-black text-indigo-700 text-sm">{countThotNot}</span>
+                            </div>
+                        </div>
+
+                        {/* Top Bar: Tabs bộ lọc, Tìm kiếm & Nút thêm tài khoản */}
+                        <div className="p-3 sm:p-4 bg-white border-b border-gray-200 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
                             {/* Tabs bộ lọc */}
                             <div className="flex gap-1 sm:gap-1.5 flex-wrap">
                                 <button
@@ -3702,7 +3846,7 @@
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                                         filterBranch === 'all'
                                             ? 'bg-purple-600 text-white shadow-2xs'
-                                            : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                     }`}
                                 >
                                     Tất cả ({accounts.length})
@@ -3713,7 +3857,7 @@
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
                                         filterBranch === 'nga-bay'
                                             ? 'bg-emerald-600 text-white shadow-2xs'
-                                            : 'bg-white text-emerald-800 hover:bg-emerald-50 border border-emerald-200'
+                                            : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
                                     }`}
                                 >
                                     <span>🏥 Ngã Bảy</span>
@@ -3725,7 +3869,7 @@
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
                                         filterBranch === 'thot-not'
                                             ? 'bg-indigo-600 text-white shadow-2xs'
-                                            : 'bg-white text-indigo-800 hover:bg-indigo-50 border border-indigo-200'
+                                            : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200'
                                     }`}
                                 >
                                     <span>🏥 Thốt Nốt</span>
@@ -3737,38 +3881,47 @@
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
                                         filterBranch === 'admin'
                                             ? 'bg-amber-600 text-white shadow-2xs'
-                                            : 'bg-white text-amber-800 hover:bg-amber-50 border border-amber-200'
+                                            : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
                                     }`}
                                 >
-                                    <span>👨‍💼 Quản trị</span>
+                                    <span>👑 Quản trị</span>
                                     <span className="text-[10px] px-1 rounded-full bg-black/10">({countAdmin})</span>
                                 </button>
                             </div>
 
-                            {/* Nút bật form thêm tài khoản */}
-                            <div className="flex gap-2">
-                                {accounts.length === 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={handleSeedDefaultAccounts}
-                                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition shadow-2xs flex items-center gap-1"
-                                    >
-                                        <span>⚡</span> Khởi tạo mặc định
-                                    </button>
-                                )}
+                            {/* Ô tìm kiếm & Thêm mới */}
+                            <div className="flex gap-2 items-center">
+                                <div className="relative flex-1 sm:w-56">
+                                    <input
+                                        type="text"
+                                        value={searchKeyword}
+                                        onChange={(e) => setSearchKeyword(e.target.value)}
+                                        placeholder="🔍 Tìm tên, pass, @user..."
+                                        className="w-full text-xs px-3 py-1.5 pr-7 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 bg-gray-50 focus:bg-white"
+                                    />
+                                    {searchKeyword && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchKeyword('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => {
                                         setIsAdding(!isAdding);
                                         setFormError('');
                                     }}
-                                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs flex items-center gap-1 ${
+                                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs shrink-0 flex items-center gap-1 ${
                                         isAdding
                                             ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+                                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white active:scale-95'
                                     }`}
                                 >
-                                    <span>{isAdding ? '✕ Đóng form' : '➕ Thêm tài khoản'}</span>
+                                    <span>{isAdding ? '✕ Đóng form' : '➕ Thêm nhân viên'}</span>
                                 </button>
                             </div>
                         </div>
@@ -3879,7 +4032,7 @@
                                         <div className="sm:col-span-2 md:col-span-3">
                                             <p className="text-[11px] text-purple-800 font-medium bg-purple-100/80 px-3 py-2 rounded-xl flex items-center gap-1.5 border border-purple-200">
                                                 <span>💡</span>
-                                                <span>Nhân viên chỉ cần nhập <strong>mật khẩu</strong> là vào ngay hệ thống. Tên nhân viên sẽ tự động hiển thị khi nhập, sửa, và in bill.</span>
+                                                <span>Nhân viên chỉ cần nhập <strong>mật khẩu</strong> là vào ngay hệ thống. Tên nhân viên sẽ tự động hiển thị khi nhập, sửa và in bill.</span>
                                             </p>
                                         </div>
                                     </div>
@@ -3889,11 +4042,11 @@
 
                         {/* Danh sách tài khoản (Body scrollable) */}
                         <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-3">
-                            {filteredAccounts.length === 0 ? (
+                            {sortedAccounts.length === 0 ? (
                                 <div className="text-center py-10 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
                                     <div className="text-3xl mb-2">📭</div>
-                                    <p className="text-sm font-bold text-gray-700">Chưa có tài khoản nào trong danh mục này</p>
-                                    <p className="text-xs text-gray-400 mt-1">Bấm nút "Thêm tài khoản" ở trên để tạo mới hoặc khởi tạo 4 tài khoản mặc định.</p>
+                                    <p className="text-sm font-bold text-gray-700">Không tìm thấy tài khoản nào phù hợp</p>
+                                    <p className="text-xs text-gray-400 mt-1">Vui lòng thử từ khóa tìm kiếm khác hoặc thêm nhân viên mới.</p>
                                     {accounts.length === 0 && (
                                         <button
                                             type="button"
@@ -3905,141 +4058,168 @@
                                     )}
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {filteredAccounts.map((acc) => {
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                    {sortedAccounts.map((acc) => {
                                         const isMaster = acc.username === 'admin' || acc.id === 'acc_admin_master' || (acc.role === 'admin' && acc.branch === 'all');
                                         const isNb = acc.branch === 'nga-bay';
                                         const isTn = acc.branch === 'thot-not';
                                         const isEditingPass = editingPassAccId === acc.id;
                                         const isShowPass = showPasswordsMap[acc.id];
+                                        const isCopied = copiedAccId === acc.id;
+                                        const isSystemAccount = acc.isSystem || isMaster;
 
                                         return (
                                             <div
                                                 key={acc.id}
-                                                className={`p-3.5 rounded-2xl border transition shadow-xs ${
+                                                className={`p-4 rounded-2xl border transition-all duration-200 shadow-xs flex flex-col justify-between ${
                                                     isMaster
-                                                        ? 'bg-amber-50/50 border-amber-200'
+                                                        ? 'bg-gradient-to-br from-amber-50/80 via-amber-50/40 to-orange-50/30 border-amber-300 ring-1 ring-amber-200'
                                                         : isNb
-                                                            ? 'bg-emerald-50/40 border-emerald-200'
+                                                            ? 'bg-gradient-to-br from-emerald-50/60 to-white border-emerald-200'
                                                             : isTn
-                                                                ? 'bg-indigo-50/40 border-indigo-200'
+                                                                ? 'bg-gradient-to-br from-indigo-50/60 to-white border-indigo-200'
                                                                 : 'bg-white border-gray-200'
                                                 }`}
                                             >
-                                                {/* Header thẻ: Tên + Role badge */}
-                                                <div className="flex items-start justify-between gap-2 pb-2 border-b border-gray-100">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg font-bold shrink-0 ${
-                                                            isMaster 
-                                                                ? 'bg-amber-100 text-amber-800' 
-                                                                : acc.role === 'admin'
-                                                                    ? 'bg-purple-100 text-purple-800'
-                                                                    : 'bg-blue-100 text-blue-800'
-                                                        }`}>
-                                                            {isMaster ? '👑' : acc.role === 'admin' ? '👨‍💼' : '👨‍💻'}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <div className="font-extrabold text-gray-900 text-sm truncate flex items-center gap-1.5">
-                                                                <span>{acc.name}</span>
-                                                                {isMaster && (
-                                                                    <span className="text-[10px] bg-amber-500 text-white font-black px-1.5 py-0.2 rounded-md">
-                                                                        MASTER
-                                                                    </span>
-                                                                )}
+                                                {/* Header thẻ: Avatar + Tên + Badges */}
+                                                <div>
+                                                    <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-gray-100">
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xl font-bold shrink-0 shadow-2xs ${
+                                                                isMaster 
+                                                                    ? 'bg-amber-500 text-white' 
+                                                                    : acc.role === 'admin'
+                                                                        ? 'bg-purple-600 text-white'
+                                                                        : isNb
+                                                                            ? 'bg-emerald-600 text-white'
+                                                                            : 'bg-indigo-600 text-white'
+                                                            }`}>
+                                                                {isMaster ? '👑' : acc.role === 'admin' ? '👨‍💼' : '👨‍💻'}
                                                             </div>
-                                                            <div className="text-xs text-gray-500 font-mono">
-                                                                @{acc.username}
+                                                            <div className="min-w-0">
+                                                                <div className="font-extrabold text-gray-900 text-sm truncate flex items-center gap-1.5">
+                                                                    <span className="truncate">{acc.name}</span>
+                                                                    {isMaster && (
+                                                                        <span className="text-[10px] bg-amber-500 text-white font-black px-1.5 py-0.2 rounded-md shrink-0">
+                                                                            MASTER
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
+                                                                    <span>@{acc.username}</span>
+                                                                    {isSystemAccount ? (
+                                                                        <span className="text-[9px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.2 rounded">
+                                                                            🛡️ Hệ thống
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded">
+                                                                            👤 Tự tạo
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
+                                                        </div>
+
+                                                        {/* Role & Branch Badges */}
+                                                        <div className="flex flex-col items-end gap-1 shrink-0">
+                                                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-lg shadow-2xs ${
+                                                                isMaster
+                                                                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                                                    : isNb 
+                                                                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
+                                                                        : 'bg-indigo-100 text-indigo-900 border border-indigo-300'
+                                                            }`}>
+                                                                {isMaster ? '🌟 Toàn quyền' : isNb ? '🏥 Ngã Bảy' : '🏥 Thốt Nốt'}
+                                                            </span>
+                                                            <span className="text-[10px] text-gray-600 font-bold bg-white/80 px-2 py-0.5 rounded-md border border-gray-200">
+                                                                {acc.role === 'admin' ? '👨‍💼 Quản lý' : '👨‍💻 Nhân viên'}
+                                                            </span>
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex flex-col items-end gap-1 shrink-0">
-                                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
-                                                            isNb 
-                                                                ? 'bg-emerald-100 text-emerald-800' 
-                                                                : isTn
-                                                                    ? 'bg-indigo-100 text-indigo-800'
-                                                                    : 'bg-purple-100 text-purple-800'
-                                                        }`}>
-                                                            {isNb ? '🏥 Ngã Bảy' : isTn ? '🏥 Thốt Nốt' : '🌟 Toàn quyền'}
-                                                        </span>
-                                                        <span className="text-[10px] text-gray-500 font-semibold">
-                                                            {acc.role === 'admin' ? 'Quản lý' : 'Nhân viên'}
-                                                        </span>
-                                                    </div>
-                                                </div>
+                                                    {/* Giữa: Hiển thị mật khẩu & Sao chép */}
+                                                    <div className="py-2.5 flex items-center justify-between text-xs">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-gray-500 font-semibold text-[11px]">Mật khẩu:</span>
+                                                            <div className="flex items-center bg-white px-2.5 py-1 rounded-xl border border-gray-200 shadow-2xs">
+                                                                <span className="font-mono font-black text-gray-900 tracking-wider">
+                                                                    {isShowPass ? (acc.password || '---') : '••••••••'}
+                                                                </span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleShowPassword(acc.id)}
+                                                                    className="ml-2 text-gray-400 hover:text-gray-700 text-xs transition"
+                                                                    title={isShowPass ? 'Che mật khẩu' : 'Hiện mật khẩu'}
+                                                                >
+                                                                    {isShowPass ? '🙈' : '👁️'}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => copyPasswordToClipboard(acc)}
+                                                                    className="ml-1 text-gray-400 hover:text-purple-600 text-xs transition"
+                                                                    title="Sao chép mật khẩu"
+                                                                >
+                                                                    {isCopied ? '✅' : '📋'}
+                                                                </button>
+                                                            </div>
+                                                        </div>
 
-                                                {/* Giữa: Xem mật khẩu */}
-                                                <div className="py-2 flex items-center justify-between text-xs">
-                                                    <div className="flex items-center gap-1.5 text-gray-600">
-                                                        <span className="text-gray-400 font-medium">Mật khẩu:</span>
-                                                        <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded-lg border border-gray-200">
-                                                            {isShowPass ? (acc.password || '---') : '••••••••'}
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => toggleShowPassword(acc.id)}
-                                                            className="text-gray-400 hover:text-gray-700 text-xs p-1"
-                                                            title={isShowPass ? 'Che mật khẩu' : 'Hiện mật khẩu'}
-                                                        >
-                                                            {isShowPass ? '🙈' : '👁️'}
-                                                        </button>
+                                                        {acc.createdAt && (
+                                                            <span className="text-[10px] text-gray-400" title={acc.createdAt}>
+                                                                {new Date(acc.createdAt).toLocaleDateString('vi-VN')}
+                                                            </span>
+                                                        )}
                                                     </div>
 
-                                                    {acc.createdAt && (
-                                                        <span className="text-[10px] text-gray-400" title={acc.createdAt}>
-                                                            Tạo: {new Date(acc.createdAt).toLocaleDateString('vi-VN')}
-                                                        </span>
+                                                    {/* Form đổi mật khẩu nhanh */}
+                                                    {isEditingPass && (
+                                                        <div className="my-2 p-3 bg-purple-50 rounded-xl border border-purple-300 shadow-2xs space-y-2 animate-fadeIn">
+                                                            <div className="text-xs font-bold text-purple-900 flex items-center justify-between">
+                                                                <span>🔐 Đổi mật khẩu cho: {acc.name}</span>
+                                                                <span className="text-[10px] text-purple-600 font-normal">≥ 3 ký tự, không trùng người khác</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    value={editNewPass}
+                                                                    onChange={(e) => setEditNewPass(e.target.value)}
+                                                                    placeholder="Mật khẩu mới..."
+                                                                    className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-purple-400 font-medium"
+                                                                />
+                                                                <input
+                                                                    type="text"
+                                                                    value={editConfirmPass}
+                                                                    onChange={(e) => setEditConfirmPass(e.target.value)}
+                                                                    placeholder="Nhập lại mật khẩu..."
+                                                                    className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-purple-400 font-medium"
+                                                                />
+                                                            </div>
+                                                            <div className="flex justify-end gap-1.5 pt-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSavePassword(acc)}
+                                                                    className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-lg hover:bg-purple-700 transition active:scale-95 shadow-xs"
+                                                                >
+                                                                    ✓ Lưu mật khẩu
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setEditingPassAccId(null);
+                                                                        setEditNewPass('');
+                                                                        setEditConfirmPass('');
+                                                                    }}
+                                                                    className="px-2.5 py-1 bg-gray-200 text-gray-700 font-semibold text-xs rounded-lg hover:bg-gray-300"
+                                                                >
+                                                                    Hủy
+                                                                </button>
+                                                            </div>
+                                                        </div>
                                                     )}
                                                 </div>
 
-                                                {/* Form đổi mật khẩu nhanh nếu đang mở */}
-                                                {isEditingPass && (
-                                                    <div className="my-2 p-2.5 bg-white rounded-xl border border-purple-300 shadow-2xs space-y-2 animate-fadeIn">
-                                                        <div className="text-xs font-bold text-purple-900 flex items-center gap-1">
-                                                            <span>🔐</span> Đổi mật khẩu cho: {acc.name}
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <input
-                                                                type="text"
-                                                                value={editNewPass}
-                                                                onChange={(e) => setEditNewPass(e.target.value)}
-                                                                placeholder="Mật khẩu mới..."
-                                                                className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 font-medium"
-                                                            />
-                                                            <input
-                                                                type="text"
-                                                                value={editConfirmPass}
-                                                                onChange={(e) => setEditConfirmPass(e.target.value)}
-                                                                placeholder="Nhập lại..."
-                                                                className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 font-medium"
-                                                            />
-                                                        </div>
-                                                        <div className="flex justify-end gap-1.5 pt-1">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleSavePassword(acc)}
-                                                                className="px-3 py-1 bg-purple-600 text-white font-bold text-xs rounded-lg hover:bg-purple-700 transition"
-                                                            >
-                                                                ✓ Cập nhật
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setEditingPassAccId(null);
-                                                                    setEditNewPass('');
-                                                                    setEditConfirmPass('');
-                                                                }}
-                                                                className="px-2.5 py-1 bg-gray-200 text-gray-700 font-semibold text-xs rounded-lg hover:bg-gray-300"
-                                                            >
-                                                                Hủy
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Thao tác: Đổi pass & Xóa */}
-                                                <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                                                {/* Footer Thẻ: Thao tác Đổi pass & Xóa */}
+                                                <div className="pt-2 border-t border-gray-100 flex items-center justify-between gap-2 mt-1">
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -4057,15 +4237,23 @@
                                                         <span>{isEditingPass ? 'Đóng' : 'Đổi mật khẩu'}</span>
                                                     </button>
 
-                                                    {!isMaster && (
+                                                    {isSystemAccount ? (
+                                                        <span 
+                                                            className="text-[10px] text-gray-400 font-semibold px-2 py-1 bg-gray-100 rounded-lg flex items-center gap-1 cursor-default"
+                                                            title="Tài khoản hệ thống mặc định không thể xóa để đảm bảo ứng dụng luôn đăng nhập được"
+                                                        >
+                                                            <span>🔒</span>
+                                                            <span>Mặc định (Không xóa)</span>
+                                                        </span>
+                                                    ) : (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleDeleteAccount(acc)}
                                                             className="px-2.5 py-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl text-xs font-bold transition flex items-center gap-1 active:scale-95 border border-red-100"
-                                                            title="Xóa tài khoản này"
+                                                            title="Xóa tài khoản nhân viên này"
                                                         >
                                                             <span>🗑️</span>
-                                                            <span>Xóa</span>
+                                                            <span>Xóa tài khoản</span>
                                                         </button>
                                                     )}
                                                 </div>
@@ -4077,17 +4265,30 @@
                         </div>
 
                         {/* Footer Modal */}
-                        <div className="shrink-0 p-3 sm:p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center text-xs text-gray-500">
-                            <div>
-                                💡 Nhân viên có thể đăng nhập bằng <b>Tên đăng nhập + Mật khẩu</b> hoặc đăng nhập trực tiếp bằng <b>Mật khẩu</b>.
+                        <div className="shrink-0 p-3 sm:p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row gap-2 justify-between items-center text-xs text-gray-600">
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-base">💡</span>
+                                <span>
+                                    <strong>Cách nhân viên đăng nhập:</strong> Chỉ cần gõ đúng <strong>Mật khẩu riêng</strong> tại màn hình khóa, hệ thống sẽ tự nhận diện đúng tên và chi nhánh khi nhập bill.
+                                </span>
                             </div>
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-xl transition active:scale-95 text-xs"
-                            >
-                                Đóng
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleSeedDefaultAccounts}
+                                    className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold rounded-xl transition text-xs flex items-center gap-1"
+                                    title="Khôi phục hoặc bảo toàn 4 tài khoản hệ thống cốt lõi"
+                                >
+                                    <span>⚡</span> Đồng bộ hệ thống
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="px-4 py-1.5 bg-gray-700 hover:bg-gray-800 text-white font-bold rounded-xl transition active:scale-95 text-xs shadow-xs"
+                                >
+                                    Đóng
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

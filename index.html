@@ -129,7 +129,7 @@
 
         // Telegram Config
         const TELEGRAM = {
-            botToken: '8223316349:AAF5nm35vokxZfYJh4Wcdz_iuSItyN_E5uU',
+            botToken: '8768976912:AAF0_qySQt8QBCv-G6WW1yxp7YhBBLPDEWw',
             chatId: '-5233383940'
         };
 
@@ -139,10 +139,15 @@
                     const res = await fetch(`https://api.telegram.org/bot${TELEGRAM.botToken}/sendMessage`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chat_id: TELEGRAM.chatId, text, parse_mode: 'Markdown' })
+                        body: JSON.stringify({ chat_id: TELEGRAM.chatId, text, parse_mode: 'HTML' })
                     });
                     const data = await res.json();
-                    return data.ok;
+                    if (!data.ok) {
+                        console.error('Telegram error:', data);
+                        alert('❌ Telegram lỗi: ' + (data.description || 'Không gửi được'));
+                        return false;
+                    }
+                    return true;
                 } else {
                     const chunks = [];
                     let remaining = text;
@@ -161,20 +166,28 @@
                         const res = await fetch(`https://api.telegram.org/bot${TELEGRAM.botToken}/sendMessage`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ chat_id: TELEGRAM.chatId, text: chunk, parse_mode: 'Markdown' })
+                            body: JSON.stringify({ chat_id: TELEGRAM.chatId, text: chunk, parse_mode: 'HTML' })
                         });
                         const data = await res.json();
-                        if (!data.ok) allOk = false;
+                        if (!data.ok) {
+                            console.error('Telegram chunk error:', data);
+                            alert('❌ Telegram lỗi: ' + (data.description || 'Không gửi được'));
+                            allOk = false;
+                        }
                     }
                     return allOk;
                 }
-            } catch (e) { console.error('Telegram error:', e); return false; }
+            } catch (e) {
+                console.error('Telegram error:', e);
+                alert('❌ Lỗi kết nối Telegram: ' + e.message);
+                return false;
+            }
         };
 
         const buildDailyReport = (dateStr, branchesData) => {
             const d = dateStr.split('-');
-            let msg = '📊 *BÁO CÁO DOANH THU*\n';
-            msg += `📅 Ngày: *${d[2]}/${d[1]}/${d[0]}*\n`;
+            let msg = '📊 <b>BÁO CÁO DOANH THU</b>\n';
+            msg += `📅 Ngày: <b>${d[2]}/${d[1]}/${d[0]}</b>\n`;
             msg += '━━━━━━━━━━━━━━━━━━━━\n';
 
             const toArray = (val) => {
@@ -183,8 +196,8 @@
                 return Object.values(val);
             };
 
-            const fmt = n => (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('vi-VN') + 'k';
-            const escapeMd = (str) => String(str || '').replace(/[*_`\[\]]/g, '');
+            const fmt = n => (n < 0 ? '-' : '') + Math.abs(Math.round(n)).toLocaleString('vi-VN') + 'k';
+            const esc = (text) => String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
             let gExam = 0, gDoctor = 0, gExpense = 0, gMedicine = 0, gCases = 0;
             let gExamCash = 0, gExamTransfer = 0;
@@ -195,7 +208,7 @@
             let ngaBayMedicine = 0;
             const nbBranch = branchesData.find(b => (b.key === 'nga-bay') || (b.name && b.name.includes('Ngã Bảy')));
             if (nbBranch && nbBranch.data) {
-                const nbMeds = toArray(nbBranch.data.medicines);
+                const nbMeds = toArray(nbBranch.data.medicines).filter(Boolean);
                 nbMeds.forEach(m => {
                     ngaBayMedicine += parseFloat(m.quantity || 0) * parseFloat(m.price || 0);
                 });
@@ -214,7 +227,7 @@
                 let exam = 0, examCash = 0, examTransfer = 0, cases = 0;
                 let transferPrescriptions = [];
 
-                const rxList = toArray(data.prescriptions);
+                const rxList = toArray(data.prescriptions).filter(Boolean);
                 if (rxList.length > 0) {
                     rxList.forEach(p => {
                         if (!p) return;
@@ -223,7 +236,7 @@
                         cases++;
                         if (p.paymentMethod === 'transfer') {
                             examTransfer += price;
-                            if (p.prescriptionNo) transferPrescriptions.push(`Toa ${escapeMd(p.prescriptionNo)}`);
+                            if (p.prescriptionNo) transferPrescriptions.push(`Toa ${String(p.prescriptionNo).trim()}`);
                         } else {
                             examCash += price;
                         }
@@ -237,11 +250,11 @@
                     });
                     if (data.patientDetails) {
                         Object.entries(data.patientDetails).forEach(([p, patients]) => {
-                            const ptArr = toArray(patients);
+                            const ptArr = toArray(patients).filter(Boolean);
                             ptArr.forEach(pt => {
                                 if (pt && pt.paymentMethod === 'transfer') {
                                     examTransfer += parseFloat(p || 0);
-                                    if (pt.prescriptionNo) transferPrescriptions.push(`Toa ${escapeMd(pt.prescriptionNo)}`);
+                                    if (pt.prescriptionNo) transferPrescriptions.push(`Toa ${String(pt.prescriptionNo).trim()}`);
                                 }
                             });
                         });
@@ -249,16 +262,20 @@
                     examCash = exam - examTransfer;
                 }
 
-                transferPrescriptions.sort((a,b) => (parseInt(a.replace(/\D/g, '') || 0)) - (parseInt(b.replace(/\D/g, '') || 0)));
+                transferPrescriptions.sort((a, b) => {
+                    const numA = parseInt(a.replace(/\D/g, '') || '0', 10);
+                    const numB = parseInt(b.replace(/\D/g, '') || '0', 10);
+                    return numA - numB;
+                });
 
                 let doctor = 0, expense = 0, medicine = 0;
-                const docList = toArray(data.doctorFees);
+                const docList = toArray(data.doctorFees).filter(Boolean);
                 docList.forEach(f => doctor += parseFloat(f.amount || 0));
 
-                const expList = toArray(data.expenses);
+                const expList = toArray(data.expenses).filter(Boolean);
                 expList.forEach(e => expense += parseFloat(e.amount || 0));
 
-                const medList = toArray(data.medicines);
+                const medList = toArray(data.medicines).filter(Boolean);
                 medList.forEach(m => medicine += parseFloat(m.quantity || 0) * parseFloat(m.price || 0));
 
                 // Thuốc nội bộ giữa 2 chi nhánh:
@@ -288,7 +305,7 @@
                 }
 
                 msg += `\n${name}\n`;
-                msg += `💰 Tiền khám: *${fmt(exam)}* (${cases} ca)\n`;
+                msg += `💰 Tiền khám: <b>${fmt(exam)}</b> (${cases} ca)\n`;
 
                 // Phần chuyển khoản không ghi tên bệnh nhân, chỉ ghi số toa
                 const ckNote = transferPrescriptions.length > 0 ? ` (${transferPrescriptions.join(', ')})` : '';
@@ -299,31 +316,31 @@
 
                 if (isNgaBay && medicine > 0) {
                     msg += `💊 Tiền nhập thuốc từ Thốt Nốt: -${fmt(medicine)} (sổ sách cuối tháng)\n`;
-                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyTotalInDay)}*\n`;
+                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: <b>${fmt(dailyTotalInDay)}</b>\n`;
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                 } else if (isThotNot) {
                     if (medicine > 0) {
                         msg += `💊 Tiền thuốc tại quầy Thốt Nốt: ${fmt(medicine)}\n`;
                     }
-                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyTotalInDay)}*\n`;
+                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: <b>${fmt(dailyTotalInDay)}</b>\n`;
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                     if (transferredFromNB > 0) {
                         msg += `📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +${fmt(transferredFromNB)}\n`;
-                        msg += `👉 Tổng gồm thuốc (sổ sách): *${fmt(grandTotal)}*\n`;
+                        msg += `👉 Tổng gồm thuốc (sổ sách): <b>${fmt(grandTotal)}</b>\n`;
                     }
                 } else {
-                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: *${fmt(dailyTotalInDay)}*\n`;
+                    msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: <b>${fmt(dailyTotalInDay)}</b>\n`;
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
                 }
 
                 // Báo cáo doanh thu không liệt kê tên bệnh nhân (theo yêu cầu)
 
                 if (docList.length > 0) {
-                    const details = docList.filter(f => f && f.doctor && parseFloat(f.amount) > 0).map(f => `${escapeMd(f.doctor)} ${fmt(parseFloat(f.amount))}`);
+                    const details = docList.filter(f => f && f.doctor && parseFloat(f.amount) > 0).map(f => `${esc(f.doctor)} ${fmt(parseFloat(f.amount))}`);
                     if (details.length) msg += `   ┗ Lương BS: ${details.join(', ')}\n`;
                 }
                 if (expList.length > 0) {
-                    const details = expList.filter(e => e && e.description && parseFloat(e.amount) > 0).map(e => `${escapeMd(e.description)} ${fmt(parseFloat(e.amount))}`);
+                    const details = expList.filter(e => e && e.description && parseFloat(e.amount) > 0).map(e => `${esc(e.description)} ${fmt(parseFloat(e.amount))}`);
                     if (details.length) msg += `   ┗ Chi phí: ${details.join(', ')}\n`;
                 }
                 // Phần thuốc: không ghi từng loại thuốc theo yêu cầu của user
@@ -342,8 +359,8 @@
 
             if (hasData && branchesData.length > 1) {
                 msg += '\n━━━━━━━━━━━━━━━━━━━━\n';
-                msg += '📈 *TỔNG 2 CHI NHÁNH*\n';
-                msg += `💰 Tiền khám: *${fmt(gExam)}* (${gCases} ca)\n`;
+                msg += '📈 <b>TỔNG 2 CHI NHÁNH</b>\n';
+                msg += `💰 Tiền khám: <b>${fmt(gExam)}</b> (${gCases} ca)\n`;
                 msg += `   💵 Tiền mặt: ${fmt(gExamCash)} | 💳 Chuyển khoản: ${fmt(gExamTransfer)}\n`;
                 if (ngaBayMedicine > 0) {
                     msg += `💊 Tiền thuốc: Huề (NB trả TN ${fmt(ngaBayMedicine)} trên sổ sách)\n`;
@@ -351,10 +368,10 @@
                 msg += `👨‍⚕️ Lương BS: ${fmt(gDoctor)}\n`;
                 msg += `💸 Chi phí: ${fmt(gExpense)}\n`;
                 msg += '━━━━━━━━━━━━━━━━━━━━\n';
-                msg += `${gNet >= 0 ? '🏆' : '🔴'} *TỔNG CÒN LẠI: ${fmt(gNet)}*\n`;
-                msg += `   💵 Tiền mặt trong ngày: *${fmt(gNetCash)}* | 💳 Chuyển khoản: *${fmt(gNetTransfer)}*\n`;
+                msg += `${gNet >= 0 ? '🏆' : '🔴'} <b>TỔNG CÒN LẠI: ${fmt(gNet)}</b>\n`;
+                msg += `   💵 Tiền mặt trong ngày: <b>${fmt(gNetCash)}</b> | 💳 Chuyển khoản: <b>${fmt(gNetTransfer)}</b>\n`;
                 if (ngaBayMedicine > 0) {
-                    msg += `   📦 Tiền thuốc trên sổ sách: *${fmt(ngaBayMedicine)}*\n`;
+                    msg += `   📦 Tiền thuốc trên sổ sách: <b>${fmt(ngaBayMedicine)}</b>\n`;
                 }
             }
 

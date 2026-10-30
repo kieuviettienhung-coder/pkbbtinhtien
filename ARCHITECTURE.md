@@ -219,8 +219,11 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - **Tự động hợp nhất trên Desktop (`sm:` >= 640px):** Giao diện tự động dàn thành 1 thanh hàng ngang liền mạch chuyên nghiệp.
   - **Quy tắc CSS toàn cục & Inline styles:** Bổ sung `box-sizing: border-box;` và `input { min-width: 0; }` trong thẻ `<style>` toàn trang cùng inline style `boxSizing: 'border-box', minWidth: 0, width: '100%'` trên tất cả các ô nhập liệu, triệt tiêu hoàn toàn nguy cơ tràn vỡ flexbox trên các trình duyệt di động (iOS Safari, Android Chrome).
   - **Thẻ Card View & Chế độ sửa:** Tên bé trong danh sách toa được tối ưu `flex-1 min-w-0 truncate` và ô tiền `shrink-0` cố định; các ô nhập trong chế độ sửa toa trên mobile đều áp dụng `minWidth: 0` chống tràn lưới.
-- **Báo cáo doanh thu qua Telegram (`buildDailyReport` & `sendTelegram`):**
-  - **Tách bạch 100% Tiền mặt & Chuyển khoản:** Tất cả các chỉ số (Tiền khám, Còn lại của từng chi nhánh, Tổng thu 2 chi nhánh, Tổng còn lại 2 chi nhánh) đều được bóc tách rõ ràng theo `💵 Tiền mặt` và `💳 Chuyển khoản`.
+- **Báo cáo doanh thu qua Telegram (Đồng bộ Web App `buildDailyReport` & Google Apps Script `PKBB_Telegram_Report.gs`):**
+  - **Tách bạch 100% Tiền mặt & Chuyển khoản:** Tất cả các chỉ số (Tiền khám, Còn lại trong ngày của từng chi nhánh, Tổng khám 2 chi nhánh, Tổng còn lại 2 chi nhánh) đều được bóc tách rõ ràng theo `💵 Tiền mặt` và `💳 Chuyển khoản`.
+  - **Đồng bộ hóa 2 kênh gửi báo cáo:**
+    1. **Nút `📨 Gửi TG` trên Web App:** Dành cho Admin gửi tức thì bất cứ lúc nào trong ngày qua hàm `buildDailyReport`.
+    2. **Tự động 20:00 mỗi tối qua Google Apps Script (`PKBB_Telegram_Report.gs`):** Chạy tự động theo trigger thời gian độc lập trên Google Cloud, lấy dữ liệu trực tiếp từ Firebase RTDB và gửi vào nhóm Telegram của phòng khám mà không phụ thuộc vào việc có ai mở trình duyệt hay không.
   - **Chuẩn hóa luồng tiền thuốc giữa 2 chi nhánh:**
     - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc cấp cho Ngã Bảy mang từ Thốt Nốt sang.
     - Tại Ngã Bảy: Trừ tiền nhập thuốc từ Thốt Nốt (`💊 Tiền nhập thuốc từ Thốt Nốt: -Xk (sổ sách cuối tháng)`), trích ra từ tiền khám để trả Thốt Nốt.
@@ -230,9 +233,9 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
     - **Phần thuốc không ghi từng loại:** Lược bỏ toàn bộ danh sách liệt kê chi tiết từng loại thuốc, giữ cho tin nhắn ngắn gọn, trực quan và dễ đọc.
   - **Tổng hợp 2 chi nhánh chuẩn xác & Cân bằng tài chính:**
     - Tiền thuốc giữa 2 chi nhánh bù trừ nội bộ lẫn nhau (`💊 Tiền thuốc: Huề (NB trả TN Xk trên sổ sách)`), không bị cộng trùng vào tổng doanh thu.
-    - Dòng `🏆 TỔNG CÒN LẠI` tách bạch: `💵 Tiền mặt trong ngày` (thực tế kiểm két), `💳 Chuyển khoản`, và `📦 Tiền thuốc trên sổ sách`.
-  - **Chống lỗi định dạng Markdown & Chia nhỏ tin nhắn:**
-    - Tự động lọc ký tự đặc biệt (`*`, `_`, `[`, `]`) trong tên bệnh nhân, bác sĩ, chi phí để tránh lỗi cú pháp parse Markdown của Telegram.
+    - Dòng `🏆 TỔNG CÒN LẠI` tách bạch: `💵 Tiền mặt trong ngày` (thực tế kiểm két cả 2 bên), `💳 Chuyển khoản`, và `📦 Tiền thuốc trên sổ sách`.
+  - **Chống lỗi định dạng & Chia nhỏ tin nhắn:**
+    - Tự động lọc ký tự đặc biệt trong tên bệnh nhân, bác sĩ, chi phí để tránh lỗi cú pháp parse HTML/Markdown của Telegram.
     - Cơ chế tự động cắt nhỏ tin nhắn (chunks <= 4000 ký tự) đảm bảo gửi thành công 100% kể cả trong những ngày cao điểm có hàng trăm bệnh nhân.
 
 ### Quản lý Tài khoản Đa Chi Nhánh & Nhật Ký Thao Tác (Audit Trail)

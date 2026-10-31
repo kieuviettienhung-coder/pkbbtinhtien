@@ -299,4 +299,4 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   2. **Nút bấm `🧾 Xuất HĐ` ngay lập tức:**
      - Cho phép xuất hóa đơn KiotViet bất kỳ lúc nào trên từng dòng toa khám hoặc ngay trong hộp thoại In Bill.
   3. **Trạm xử lý ngầm Google Apps Script (`PKBB_Telegram_Report.gs`):**
-     - Hàm `processKiotVietQueue()` chạy tự động mỗi 1 phút qua Trigger (và qua Webhook `doPost` khi bấm Xuất ngay), dùng `LockService` chống trùng lặp tuyệt đối, tự động lấy OAuth2 token từ `id.kiotviet.vn`, tạo hóa đơn qua `https://public.kiotapi.com/invoices` và cập nhật mã hóa đơn (`#HD016xxx`) ngược lại lên Firebase theo thời gian thực.
+     - Hàm `processKiotVietQueue()` chạy tự động mỗi 15 phút (`.everyMinutes(15)`) qua Trigger (và qua Webhook `doPost` khi bấm Xuất ngay), dùng `LockService` chống trùng lặp tuyệt đối, tự động lấy OAuth2 token từ `id.kiotviet.vn`, tạo hóa đơn qua `https://public.kiotapi.com/invoices` và cập nhật mã hóa đơn (`#HD016xxx`) ngược lại lên Firebase theo thời gian thực.

@@ -7,7 +7,7 @@
 // 3. Trên thanh công cụ phía trên, chọn hàm: setupAllTriggers → Bấm nút Run (Chạy)
 //    (Hệ thống sẽ tự động cài đặt:
 //      - Báo cáo Telegram lúc 20:00 mỗi tối
-//      - Tự động quét & xuất Hóa đơn KiotViet mỗi 1 phút cho chi nhánh Thốt Nốt)
+//      - Tự động quét & xuất Hóa đơn KiotViet mỗi 15 phút cho chi nhánh Thốt Nốt)
 // 4. (Tùy chọn để bấm Xuất Ngay 1 giây): Bấm nút "Triển khai" (Deploy) ở góc phải trên
 //    → Chọn "Triển khai mới" (New deployment) → Loại: "Ứng dụng web" (Web app)
 //    → Quyền truy cập: "Bất kỳ ai" (Anyone) → Bấm Triển khai → Copy URL Web App dán vào App.
@@ -718,7 +718,7 @@ function sendTG(text) {
 
 /**
  * CHẠY HÀM NÀY 1 LẦN DUY NHẤT ĐỂ BẬT ĐỒNG THỜI:
- * 1. Tự động quét & xuất Hóa đơn KiotViet mỗi 1 phút (sau 15p in bill hoặc khi bấm Xuất ngay)
+ * 1. Tự động quét & xuất Hóa đơn KiotViet mỗi 15 phút (sau 15p in bill hoặc khi bấm Xuất ngay)
  * 2. Báo cáo doanh thu Telegram tự động lúc 20:00 mỗi tối
  */
 function setupAllTriggers() {
@@ -738,10 +738,10 @@ function setupAllTriggers() {
     .inTimezone('Asia/Ho_Chi_Minh')
     .create();
 
-  // 2. Trigger quét hàng đợi xuất hóa đơn KiotViet mỗi 1 phút
+  // 2. Trigger quét hàng đợi xuất hóa đơn KiotViet mỗi 15 phút
   ScriptApp.newTrigger('processKiotVietQueue')
     .timeBased()
-    .everyMinutes(1)
+    .everyMinutes(15)
     .create();
 
   // Kiểm tra kết nối KiotViet ngay lập tức và cập nhật nhịp tim lên Firebase
@@ -750,7 +750,7 @@ function setupAllTriggers() {
 
   sendTG(
     '✅ <b>Đã kích hoạt Hệ thống Tự động PKBB!</b>\n' +
-    '🧾 <b>KiotViet HĐĐT (hkdbachbao - Thốt Nốt):</b> Tự động quét & xuất hóa đơn mỗi phút (Token OK: ' + (token ? '✔️' : '❌') + ')\n' +
+    '🧾 <b>KiotViet HĐĐT (hkdbachbao - Thốt Nốt):</b> Tự động quét & xuất hóa đơn mỗi 15 phút (Token OK: ' + (token ? '✔️' : '❌') + ')\n' +
     '📊 <b>Báo cáo doanh thu Telegram:</b> Tự động gửi lúc 20:00 mỗi tối'
   );
 }

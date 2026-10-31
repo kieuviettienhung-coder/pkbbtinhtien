@@ -6665,10 +6665,10 @@
                 return { issuedCount, scheduledCount, processingCount, errorCount, unissuedCount };
             }, [isThotNotBranch, localPrescriptions, kiotStatusMap]);
 
-            // Kiểm tra trạng thái hoạt động của Google Apps Script Worker (trong vòng 4 phút gần nhất)
+            // Kiểm tra trạng thái hoạt động của Google Apps Script Worker (chu kỳ quét mỗi 15 phút -> kiểm tra trong vòng 20 phút gần nhất)
             const isKiotWorkerOnline = useMemo(() => {
                 if (!kiotWorkerInfo || !kiotWorkerInfo.lastHeartbeat) return false;
-                return (nowTick - parseFloat(kiotWorkerInfo.lastHeartbeat)) < 4 * 60 * 1000;
+                return (nowTick - parseFloat(kiotWorkerInfo.lastHeartbeat)) < 20 * 60 * 1000;
             }, [kiotWorkerInfo, nowTick]);
 
             // Render cụm nút & trạng thái Hóa đơn điện tử KiotViet cho từng toa khám
@@ -7913,7 +7913,7 @@
                                             </button>
                                         </div>
                                         <p className="text-[11px] text-gray-500">
-                                            💡 Kể cả khi để trống ô này, Trigger chạy ngầm mỗi 1 phút trên Google Apps Script vẫn tự động quét và xuất đầy đủ mọi hóa đơn!
+                                            💡 Kể cả khi để trống ô này, Trigger chạy ngầm mỗi 15 phút trên Google Apps Script vẫn tự động quét và xuất đầy đủ mọi hóa đơn!
                                         </p>
                                     </div>
                                 </div>

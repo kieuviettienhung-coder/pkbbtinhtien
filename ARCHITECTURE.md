@@ -279,3 +279,24 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
     - **Giao diện Desktop (Table View):** Cột chuyên dụng `👤 Nhân viên thao tác` hiển thị rõ ràng từng dòng: `📥 [Tên NV] (giờ nhập)`, `✏️ [Tên NV] (giờ sửa)`, `🖨️ [Tên NV] x[số lần in] (giờ in)`.
     - **Giao diện Điện thoại (Mobile Cards):** Footer banner nổi bật ở đáy mỗi thẻ toa: `👤 Nhập: [Tên]`, `✏️ Sửa: [Tên]`, `🖨️ In: [Tên] xN`.
     - **Báo cáo In Bill (`PrintSummaryReportView`):** Cột `👤 Người in` trong bảng kê và huy hiệu người in trên thẻ điện thoại cho phép truy vết chính xác ai đã in từng bill cụ thể.
+
+### Tích hợp Xuất Hóa Đơn Điện Tử KiotViet (`hkdbachbao` - Chi nhánh Thốt Nốt)
+- **Phạm vi áp dụng:** Chỉ hiển thị và kích hoạt tại chi nhánh **Thốt Nốt (`thot-not`)**.
+- **Thông số kết nối KiotViet Public API:**
+  - **Tên gian hàng (`Retailer`):** `hkdbachbao`
+  - **Chi nhánh KiotViet (`branchId`):** `74010` (*Chi nhánh trung tâm*)
+  - **Người bán mặc định (`soldById`):** `160218` (*Phòng Khám Bách Bảo*)
+  - **Khách hàng mặc định (`customerId`):** `34532702` (`KH000001` - *Bán cho người tiêu dùng*)
+  - **Hình thức thanh toán & Ghi chú:** Mặc định `Cash` (*Tiền mặt*) + Ghi kèm **Tên bé** vào phần Ghi chú hóa đơn (`description`), không ghi STT toa.
+  - **Quy tắc mã hàng hóa & đơn giá:**
+    - **Toa `0 đồng` (`0k`):** Xuất mã **`SP000013`** (`productId: 40782588`, *Bs ko tính tiền khám*), đơn giá **`0đ`**.
+    - **Tất cả các toa giá khác (`> 0k`):** Xuất mã **`SP000003`** (`productId: 33787060`, *Phí khám bệnh và tư vấn 50k*), giữ nguyên đơn giá mặc định **`50.000đ`**.
+- **Cơ chế hoạt động kép (Web App + Firebase Queue + Google Apps Script Background Worker):**
+  1. **Tự động hẹn 15 phút sau khi bấm In Bill:**
+     - Khi nhân viên tại Thốt Nốt bấm in bill nhiệt (`BillPrintModal`), hệ thống tự động tạo lịch hẹn 15 phút (`kiotStatus: 'scheduled'`, `kiotScheduledAt: now + 15 phút`) và đẩy vào hàng đợi `kiotviet_queue_v2` cùng trạng thái realtime tại `kiotviet_ByDate_v2/thot-not/{dateKey}/{rxId}`.
+     - Trên dòng toa khám hiển thị đồng hồ đếm ngược trực tiếp theo từng giây (`⏳ Tự xuất: MM:SS`), kèm nút `⚡ Xuất ngay` và nút `✕ Hủy`.
+     - Trong 15 phút chờ: Nếu nhân viên sửa tên bé / giá tiền hoặc xóa toa, hệ thống tự động cập nhật thông tin mới nhất vào hàng đợi hoặc hủy lệnh xuất nếu toa đã bị xóa.
+  2. **Nút bấm `🧾 Xuất HĐ` ngay lập tức:**
+     - Cho phép xuất hóa đơn KiotViet bất kỳ lúc nào trên từng dòng toa khám hoặc ngay trong hộp thoại In Bill.
+  3. **Trạm xử lý ngầm Google Apps Script (`PKBB_Telegram_Report.gs`):**
+     - Hàm `processKiotVietQueue()` chạy tự động mỗi 1 phút qua Trigger (và qua Webhook `doPost` khi bấm Xuất ngay), dùng `LockService` chống trùng lặp tuyệt đối, tự động lấy OAuth2 token từ `id.kiotviet.vn`, tạo hóa đơn qua `https://public.kiotapi.com/invoices` và cập nhật mã hóa đơn (`#HD016xxx`) ngược lại lên Firebase theo thời gian thực.

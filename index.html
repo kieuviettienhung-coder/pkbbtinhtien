@@ -384,6 +384,51 @@
         // Default price levels
         const DEFAULT_PRICE_LEVELS = [0, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 220, 230, 260, 280, 300, 320];
 
+        // Cấu hình KiotViet Hóa Đơn Điện Tử (Áp dụng cho chi nhánh Thốt Nốt - gian hàng hkdbachbao)
+        const KIOTVIET_DEFAULT_CONFIG = {
+            retailer: 'hkdbachbao',
+            clientId: '9a5e60b5-ecd9-42b7-b993-e4972e85bd00',
+            branchId: 74010,        // Chi nhánh trung tâm
+            soldById: 160218,       // Phòng Khám Bách Bảo
+            customerId: 34532702,   // KH000001 - Bán cho người tiêu dùng
+            customerCode: 'KH000001',
+            customerName: 'Bán cho người tiêu dùng',
+            productZero: { id: 40782588, code: 'SP000013', name: 'Bs ko tính tiền khám', price: 0 },
+            productPaid: { id: 33787060, code: 'SP000003', name: 'Phí khám bệnh và tư vấn 50k', price: 50000 },
+            delayMinutes: 15,
+            autoAfterPrint: true,
+            enabledBranch: 'thot-not'
+        };
+
+        // Helper: Quy tắc chọn mã hàng KiotViet theo giá khám của toa
+        function getKiotProductRule(priceVal) {
+            const num = parseFloat(priceVal);
+            const isZero = isNaN(num) || num <= 0;
+            if (isZero) {
+                return {
+                    code: 'SP000013',
+                    name: 'Bs ko tính tiền khám',
+                    invoicePrice: 0,
+                    label: 'SP000013 (0đ)'
+                };
+            }
+            return {
+                code: 'SP000003',
+                name: 'Phí khám bệnh và tư vấn 50k',
+                invoicePrice: 50000,
+                label: 'SP000003 (50k)'
+            };
+        }
+
+        // Helper: Định dạng đồng hồ đếm ngược MM:SS
+        function formatKiotCountdown(scheduledAt, nowMs) {
+            const diff = Math.max(0, (parseFloat(scheduledAt) || 0) - (nowMs || Date.now()));
+            const totalSec = Math.ceil(diff / 1000);
+            const mins = Math.floor(totalSec / 60);
+            const secs = totalSec % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
         // Helper: Chuyển đổi dữ liệu cũ (examinations & patientDetails) sang mảng danh sách toa thống nhất (prescriptions)
         function convertOldDataToPrescriptions(examinations = {}, patientDetails = {}) {
             const list = [];
@@ -399,7 +444,7 @@
                         const priceNum = parseFloat(price) || 0;
                         
                         list.push({
-                            id: 'rx_' + price + '_' + idx + '_' + Math.random().toString(36).substring(2, 7),
+                            id: (p && p.id) ? p.id : ('rx_' + price + '_' + idx + '_' + (prescriptionNo || idx)),
                             prescriptionNo,
                             name,
                             price: priceNum,
@@ -410,7 +455,15 @@
                             updatedAt: p && p.updatedAt ? p.updatedAt : '',
                             printedBy: p && p.printedBy ? p.printedBy : '',
                             lastPrintedAt: p && p.lastPrintedAt ? p.lastPrintedAt : '',
-                            printCount: p && p.printCount ? p.printCount : 0
+                            printCount: p && p.printCount ? p.printCount : 0,
+                            kiotStatus: p && p.kiotStatus ? p.kiotStatus : '',
+                            kiotScheduledAt: p && p.kiotScheduledAt ? p.kiotScheduledAt : 0,
+                            kiotInvoiceCode: p && p.kiotInvoiceCode ? p.kiotInvoiceCode : '',
+                            kiotInvoiceId: p && p.kiotInvoiceId ? p.kiotInvoiceId : '',
+                            kiotProductCode: p && p.kiotProductCode ? p.kiotProductCode : '',
+                            kiotIssuedAt: p && p.kiotIssuedAt ? p.kiotIssuedAt : '',
+                            kiotIssuedBy: p && p.kiotIssuedBy ? p.kiotIssuedBy : '',
+                            kiotError: p && p.kiotError ? p.kiotError : ''
                         });
                         usedCounts[price] = (usedCounts[price] || 0) + 1;
                     });
@@ -425,7 +478,7 @@
                 const priceNum = parseFloat(price) || 0;
                 for (let i = 0; i < missing; i++) {
                     list.push({
-                        id: 'rx_gen_' + price + '_' + i + '_' + Math.random().toString(36).substring(2, 7),
+                        id: 'rx_gen_' + price + '_' + i,
                         prescriptionNo: '',
                         name: '',
                         price: priceNum,
@@ -436,7 +489,15 @@
                         updatedAt: '',
                         printedBy: '',
                         lastPrintedAt: '',
-                        printCount: 0
+                        printCount: 0,
+                        kiotStatus: '',
+                        kiotScheduledAt: 0,
+                        kiotInvoiceCode: '',
+                        kiotInvoiceId: '',
+                        kiotProductCode: '',
+                        kiotIssuedAt: '',
+                        kiotIssuedBy: '',
+                        kiotError: ''
                     });
                 }
             });
@@ -475,6 +536,7 @@
 
                 if (!patientDetails[priceKey]) patientDetails[priceKey] = [];
                 patientDetails[priceKey].push({
+                    id: p.id || '',
                     prescriptionNo: hasStt ? String(p.prescriptionNo).trim() : '',
                     name: hasName ? String(p.name).trim() : '',
                     paymentMethod: p.paymentMethod === 'transfer' ? 'transfer' : 'cash',
@@ -484,7 +546,15 @@
                     updatedAt: p.updatedAt || '',
                     printedBy: p.printedBy || '',
                     lastPrintedAt: p.lastPrintedAt || '',
-                    printCount: p.printCount || 0
+                    printCount: p.printCount || 0,
+                    kiotStatus: p.kiotStatus || '',
+                    kiotScheduledAt: p.kiotScheduledAt || 0,
+                    kiotInvoiceCode: p.kiotInvoiceCode || '',
+                    kiotInvoiceId: p.kiotInvoiceId || '',
+                    kiotProductCode: p.kiotProductCode || '',
+                    kiotIssuedAt: p.kiotIssuedAt || '',
+                    kiotIssuedBy: p.kiotIssuedBy || '',
+                    kiotError: p.kiotError || ''
                 });
             });
 
@@ -4296,7 +4366,7 @@
         }
 
         // Modal xem trước và in bill cho máy in nhiệt
-        function BillPrintModal({ bill, onClose, currentUser, onPrinted }) {
+        function BillPrintModal({ bill, onClose, currentUser, onPrinted, kiotInfo, kiotAutoAfterPrint = true, onIssueKiotNow }) {
             const [paperSize, setPaperSize] = useState('80mm');
             const [note, setNote] = useState('');
             const [timeString] = useState(() => {
@@ -4623,6 +4693,47 @@
 
                         {/* Nút bấm hành động (Luôn GHIM CHẶT ở đáy modal, nhân viên trên mobile thấy ngay không cần cuộn) */}
                         <div className="shrink-0 p-3 sm:p-3.5 bg-white border-t border-gray-200 shadow-lg space-y-2">
+                            {/* Thông tin & Nút Xuất HĐĐT KiotViet (Chỉ hiện ở chi nhánh Thốt Nốt) */}
+                            {bill.branch === 'thot-not' && (
+                                <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 text-xs">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <span>🧾</span>
+                                        {kiotInfo && kiotInfo.kiotStatus === 'issued' ? (
+                                            <span className="font-extrabold text-emerald-700 truncate">
+                                                Đã xuất KiotViet: #{kiotInfo.kiotInvoiceCode} ({getKiotProductRule(bill.price).label})
+                                            </span>
+                                        ) : kiotInfo && kiotInfo.kiotStatus === 'processing' ? (
+                                            <span className="font-bold text-blue-700 animate-pulse">
+                                                🔄 Đang gửi hóa đơn sang KiotViet...
+                                            </span>
+                                        ) : kiotInfo && kiotInfo.kiotStatus === 'scheduled' ? (
+                                            <span className="font-bold text-amber-800">
+                                                ⏳ Đã hẹn tự xuất HĐ KiotViet ({getKiotProductRule(bill.price).label})
+                                            </span>
+                                        ) : (
+                                            <span className="font-semibold text-indigo-900">
+                                                KiotViet ({getKiotProductRule(bill.price).label}):{' '}
+                                                <strong className="text-indigo-700">
+                                                    {kiotAutoAfterPrint !== false ? 'Tự xuất sau 15p khi bấm In' : 'Chế độ tự xuất đang tắt'}
+                                                </strong>
+                                            </span>
+                                        )}
+                                    </div>
+                                    {onIssueKiotNow && (!kiotInfo || kiotInfo.kiotStatus !== 'issued') && (
+                                        <button
+                                            type="button"
+                                            onClick={() => onIssueKiotNow(bill)}
+                                            disabled={kiotInfo && kiotInfo.kiotStatus === 'processing'}
+                                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-extrabold text-[11px] rounded-lg shadow-2xs transition flex items-center gap-1 shrink-0 min-h-[30px]"
+                                            title="Xuất hóa đơn điện tử sang KiotViet ngay lập tức không cần đợi 15 phút"
+                                        >
+                                            <span>⚡</span>
+                                            <span>Xuất HĐ ngay</span>
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
@@ -5821,6 +5932,272 @@
             const [sortSuccessMessage, setSortSuccessMessage] = useState('');
             const [addSuccessMsg, setAddSuccessMsg] = useState('');
 
+            // ==================== TÍCH HỢP HÓA ĐƠN ĐIỆN TỬ KIOTVIET (CHI NHÁNH THỐT NỐT) ====================
+            const isThotNotBranch = selectedBranch === 'thot-not';
+            const dateKey = useMemo(() => String(selectedDate || '').replace(/-/g, ''), [selectedDate]);
+            const [kiotStatusMap, setKiotStatusMap] = useState({});
+            const [kiotAutoAfterPrint, setKiotAutoAfterPrint] = useState(true);
+            const [kiotWorkerInfo, setKiotWorkerInfo] = useState(null);
+            const [kiotWebhookUrl, setKiotWebhookUrl] = useState('');
+            const [showKiotSetupModal, setShowKiotSetupModal] = useState(false);
+            const [kiotToastMsg, setKiotToastMsg] = useState('');
+            const [nowTick, setNowTick] = useState(() => Date.now());
+            const [copiedGasScript, setCopiedGasScript] = useState(false);
+            const triggeredDueKeysRef = useRef({});
+
+            // Lắng nghe realtime trạng thái HĐĐT KiotViet của các toa trong ngày tại Thốt Nốt
+            useEffect(() => {
+                if (!isThotNotBranch || !dateKey) {
+                    setKiotStatusMap({});
+                    return;
+                }
+                const ref = db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}`);
+                ref.on('value', (snap) => {
+                    setKiotStatusMap(snap.val() || {});
+                });
+                return () => ref.off();
+            }, [isThotNotBranch, dateKey]);
+
+            // Lắng nghe cấu hình KiotViet và nhịp tim Google Apps Script Worker
+            useEffect(() => {
+                if (!isThotNotBranch) return;
+                const cfgRef = db.ref('settings_v2/kiotvietConfig');
+                const wkRef = db.ref('settings_v2/kiotvietWorker');
+                cfgRef.on('value', (snap) => {
+                    const val = snap.val();
+                    if (val) {
+                        if (val.autoAfterPrint !== undefined) setKiotAutoAfterPrint(!!val.autoAfterPrint);
+                        if (val.webhookUrl) setKiotWebhookUrl(val.webhookUrl);
+                    }
+                });
+                wkRef.on('value', (snap) => {
+                    const val = snap.val();
+                    if (val) {
+                        setKiotWorkerInfo(val);
+                        if (val.webhookUrl) {
+                            setKiotWebhookUrl(prev => prev || val.webhookUrl);
+                        }
+                    }
+                });
+                return () => {
+                    cfgRef.off();
+                    wkRef.off();
+                };
+            }, [isThotNotBranch]);
+
+            // Lấy thông tin KiotViet mới nhất của 1 toa khám
+            const getRxKiotInfo = (row) => {
+                if (!row) return {};
+                const fromMap = (row.id && kiotStatusMap[row.id]) ? kiotStatusMap[row.id] : null;
+                if (fromMap && fromMap.kiotStatus) {
+                    return {
+                        kiotStatus: fromMap.kiotStatus,
+                        kiotScheduledAt: fromMap.kiotScheduledAt || row.kiotScheduledAt || 0,
+                        kiotInvoiceCode: fromMap.kiotInvoiceCode || row.kiotInvoiceCode || '',
+                        kiotInvoiceId: fromMap.kiotInvoiceId || row.kiotInvoiceId || '',
+                        kiotProductCode: fromMap.kiotProductCode || row.kiotProductCode || '',
+                        kiotIssuedAt: fromMap.kiotIssuedAt || row.kiotIssuedAt || '',
+                        kiotIssuedBy: fromMap.kiotIssuedBy || fromMap.kiotRequestedBy || row.kiotIssuedBy || '',
+                        kiotError: fromMap.kiotError || row.kiotError || ''
+                    };
+                }
+                return {
+                    kiotStatus: row.kiotStatus || '',
+                    kiotScheduledAt: row.kiotScheduledAt || 0,
+                    kiotInvoiceCode: row.kiotInvoiceCode || '',
+                    kiotInvoiceId: row.kiotInvoiceId || '',
+                    kiotProductCode: row.kiotProductCode || '',
+                    kiotIssuedAt: row.kiotIssuedAt || '',
+                    kiotIssuedBy: row.kiotIssuedBy || '',
+                    kiotError: row.kiotError || ''
+                };
+            };
+
+            // Gửi tín hiệu đánh thức Google Apps Script Webhook (nếu đã cấu hình URL)
+            const triggerGasWebhook = (queueKey = null) => {
+                if (!kiotWebhookUrl) return;
+                try {
+                    fetch(kiotWebhookUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'processNow', queueKey })
+                    }).catch(() => {});
+                } catch (e) {}
+            };
+
+            // Đồng hồ đếm ngược mỗi 1 giây cho các toa đang chờ xuất (15 phút)
+            useEffect(() => {
+                if (!isThotNotBranch) return;
+                const timer = setInterval(() => {
+                    const currentNow = Date.now();
+                    setNowTick(currentNow);
+
+                    // Nếu có toa nào đang scheduled vừa chạm mốc 00:00, tự động bắn tín hiệu webhook nếu trình duyệt đang mở
+                    localPrescriptions.forEach(r => {
+                        if (!r || !r.id) return;
+                        const info = (kiotStatusMap[r.id] && kiotStatusMap[r.id].kiotStatus) ? kiotStatusMap[r.id] : r;
+                        if (info.kiotStatus === 'scheduled' && info.kiotScheduledAt && currentNow >= info.kiotScheduledAt) {
+                            const qKey = `${dateKey}_${r.id}`;
+                            if (!triggeredDueKeysRef.current[qKey]) {
+                                triggeredDueKeysRef.current[qKey] = true;
+                                triggerGasWebhook(qKey);
+                            }
+                        }
+                    });
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [isThotNotBranch, localPrescriptions, kiotStatusMap, dateKey, kiotWebhookUrl]);
+
+            // Bật / Tắt chế độ tự động hẹn 15 phút sau khi In Bill
+            const handleToggleKiotAutoAfterPrint = () => {
+                const nextVal = !kiotAutoAfterPrint;
+                setKiotAutoAfterPrint(nextVal);
+                db.ref('settings_v2/kiotvietConfig').update({
+                    autoAfterPrint: nextVal,
+                    updatedAt: new Date().toISOString()
+                });
+                setKiotToastMsg(nextVal ? '✅ Đã BẬT: Bấm In Bill sau 15 phút tự động xuất HĐ KiotViet' : '⏸️ Đã TẮT tự động xuất HĐ sau khi In Bill');
+                setTimeout(() => setKiotToastMsg(''), 3500);
+            };
+
+            // Hẹn giờ tự động xuất HĐ KiotViet sau 15 phút cho 1 toa khám
+            const scheduleKiotVietForRx = (row, delayMins = 15, silent = false) => {
+                if (!isThotNotBranch || !row || !row.id) return;
+                const cur = getRxKiotInfo(row);
+                if (cur.kiotStatus === 'issued' && cur.kiotInvoiceCode) return;
+
+                const scheduledAt = Date.now() + delayMins * 60 * 1000;
+                const nowIso = new Date().toISOString();
+                const qKey = `${dateKey}_${row.id}`;
+                const rule = getKiotProductRule(row.price);
+                delete triggeredDueKeysRef.current[qKey];
+
+                db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${row.id}`).set({
+                    rxId: row.id,
+                    prescriptionNo: String(row.prescriptionNo || '').trim(),
+                    name: String(row.name || '').trim(),
+                    price: row.price !== undefined && row.price !== '' ? row.price : 0,
+                    kiotStatus: 'scheduled',
+                    kiotScheduledAt: scheduledAt,
+                    kiotProductCode: rule.code,
+                    kiotRequestedBy: currentOperator,
+                    kiotError: '',
+                    updatedAt: nowIso
+                });
+
+                db.ref(`kiotviet_queue_v2/${qKey}`).set({
+                    queueKey: qKey,
+                    branch: 'thot-not',
+                    dateKey: dateKey,
+                    date: selectedDate,
+                    rxId: row.id,
+                    prescriptionNo: String(row.prescriptionNo || '').trim(),
+                    name: String(row.name || '').trim(),
+                    price: row.price !== undefined && row.price !== '' ? row.price : 0,
+                    status: 'scheduled',
+                    scheduledAt: scheduledAt,
+                    requestedBy: currentOperator,
+                    createdAt: nowIso
+                });
+
+                if (!silent) {
+                    setKiotToastMsg(`⏳ Đã hẹn tự động xuất HĐ KiotViet (${rule.label}) sau ${delayMins} phút cho toa #${row.prescriptionNo || 'mới'}`);
+                    setTimeout(() => setKiotToastMsg(''), 4000);
+                }
+            };
+
+            // Xuất HĐ KiotViet NGAY LẬP TỨC cho 1 toa khám
+            const issueKiotVietNow = (row) => {
+                if (!isThotNotBranch || !row || !row.id) return;
+                const cur = getRxKiotInfo(row);
+                if (cur.kiotStatus === 'issued' && cur.kiotInvoiceCode) {
+                    if (!confirm(`Toa #${row.prescriptionNo || '?'} đã xuất hóa đơn KiotViet (#${cur.kiotInvoiceCode}).\nBạn có chắc chắn muốn xuất thêm 1 hóa đơn mới không?`)) {
+                        return;
+                    }
+                }
+
+                const nowIso = new Date().toISOString();
+                const qKey = `${dateKey}_${row.id}`;
+                const rule = getKiotProductRule(row.price);
+
+                db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${row.id}`).set({
+                    rxId: row.id,
+                    prescriptionNo: String(row.prescriptionNo || '').trim(),
+                    name: String(row.name || '').trim(),
+                    price: row.price !== undefined && row.price !== '' ? row.price : 0,
+                    kiotStatus: 'processing',
+                    kiotScheduledAt: Date.now(),
+                    kiotProductCode: rule.code,
+                    kiotRequestedBy: currentOperator,
+                    kiotError: '',
+                    updatedAt: nowIso
+                });
+
+                db.ref(`kiotviet_queue_v2/${qKey}`).set({
+                    queueKey: qKey,
+                    branch: 'thot-not',
+                    dateKey: dateKey,
+                    date: selectedDate,
+                    rxId: row.id,
+                    prescriptionNo: String(row.prescriptionNo || '').trim(),
+                    name: String(row.name || '').trim(),
+                    price: row.price !== undefined && row.price !== '' ? row.price : 0,
+                    status: 'immediate',
+                    scheduledAt: Date.now(),
+                    requestedBy: currentOperator,
+                    createdAt: nowIso
+                });
+
+                triggerGasWebhook(qKey);
+                setKiotToastMsg(`⚡ Đang gửi lệnh xuất HĐ KiotViet (${rule.label}) cho toa #${row.prescriptionNo || 'mới'}...`);
+                setTimeout(() => setKiotToastMsg(''), 4000);
+            };
+
+            // Hủy hẹn giờ tự động xuất HĐ cho 1 toa khám
+            const cancelKiotVietSchedule = (row) => {
+                if (!isThotNotBranch || !row || !row.id) return;
+                const qKey = `${dateKey}_${row.id}`;
+                db.ref(`kiotviet_queue_v2/${qKey}`).remove();
+                db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${row.id}`).update({
+                    kiotStatus: 'cancelled',
+                    kiotScheduledAt: 0,
+                    updatedAt: new Date().toISOString()
+                });
+                setKiotToastMsg(`✕ Đã hủy hẹn giờ tự xuất HĐ cho toa #${row.prescriptionNo || '?'}`);
+                setTimeout(() => setKiotToastMsg(''), 3000);
+            };
+
+            // Xuất ngay toàn bộ các toa đang trong hàng chờ 15 phút
+            const handleIssueAllScheduledNow = () => {
+                if (!isThotNotBranch) return;
+                const pendingRows = localPrescriptions.filter(r => {
+                    const info = getRxKiotInfo(r);
+                    return info.kiotStatus === 'scheduled';
+                });
+                if (pendingRows.length === 0) return;
+                if (!confirm(`Xuất hóa đơn KiotViet ngay lập tức cho ${pendingRows.length} toa đang chờ đếm ngược?`)) return;
+
+                const nowIso = new Date().toISOString();
+                pendingRows.forEach(r => {
+                    const qKey = `${dateKey}_${r.id}`;
+                    const rule = getKiotProductRule(r.price);
+                    db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${r.id}`).update({
+                        kiotStatus: 'processing',
+                        kiotScheduledAt: Date.now(),
+                        kiotProductCode: rule.code,
+                        updatedAt: nowIso
+                    });
+                    db.ref(`kiotviet_queue_v2/${qKey}`).update({
+                        status: 'immediate',
+                        scheduledAt: Date.now()
+                    });
+                });
+                triggerGasWebhook(null);
+                setKiotToastMsg(`⚡ Đang xuất ngay ${pendingRows.length} toa sang KiotViet...`);
+                setTimeout(() => setKiotToastMsg(''), 4000);
+            };
+
             // Đồng bộ dữ liệu mỗi khi props thay đổi từ Firebase
             useEffect(() => {
                 if (Array.isArray(propPrescriptions) && propPrescriptions.length > 0) {
@@ -5936,9 +6313,10 @@
             // Lưu chỉnh sửa toa
             const handleSaveEdit = (id) => {
                 const nowIso = new Date().toISOString();
+                let editedRow = null;
                 const updated = localPrescriptions.map(r => {
                     if (r.id === id) {
-                        return {
+                        editedRow = {
                             ...r,
                             prescriptionNo: String(editForm.prescriptionNo || '').trim(),
                             name: String(editForm.name || '').trim(),
@@ -5947,11 +6325,33 @@
                             updatedBy: currentOperator,
                             updatedAt: nowIso
                         };
+                        return editedRow;
                     }
                     return r;
                 });
                 commitPrescriptions(updated);
                 setEditingRowId(null);
+
+                // Nếu toa ở Thốt Nốt đang chờ xuất KiotViet, cập nhật thông tin mới nhất vào hàng đợi
+                if (isThotNotBranch && editedRow) {
+                    const kInfo = getRxKiotInfo(editedRow);
+                    if (kInfo.kiotStatus === 'scheduled') {
+                        const qKey = `${dateKey}_${id}`;
+                        const rule = getKiotProductRule(editedRow.price);
+                        db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${id}`).update({
+                            prescriptionNo: editedRow.prescriptionNo,
+                            name: editedRow.name,
+                            price: editedRow.price !== '' ? editedRow.price : 0,
+                            kiotProductCode: rule.code,
+                            updatedAt: nowIso
+                        });
+                        db.ref(`kiotviet_queue_v2/${qKey}`).update({
+                            prescriptionNo: editedRow.prescriptionNo,
+                            name: editedRow.name,
+                            price: editedRow.price !== '' ? editedRow.price : 0
+                        });
+                    }
+                }
             };
 
             // Hủy chỉnh sửa
@@ -5962,18 +6362,40 @@
             // Chỉnh sửa từng trường của toa (cho bảng desktop)
             const handleRowChange = (id, field, value) => {
                 const nowIso = new Date().toISOString();
+                let editedRow = null;
                 const updated = localPrescriptions.map(row => {
                     if (row.id === id) {
-                        return { 
+                        editedRow = { 
                             ...row, 
                             [field]: value,
                             updatedBy: currentOperator,
                             updatedAt: nowIso
                         };
+                        return editedRow;
                     }
                     return row;
                 });
                 commitPrescriptions(updated);
+
+                if (isThotNotBranch && editedRow) {
+                    const kInfo = getRxKiotInfo(editedRow);
+                    if (kInfo.kiotStatus === 'scheduled') {
+                        const qKey = `${dateKey}_${id}`;
+                        const rule = getKiotProductRule(editedRow.price);
+                        db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${id}`).update({
+                            prescriptionNo: String(editedRow.prescriptionNo || '').trim(),
+                            name: String(editedRow.name || '').trim(),
+                            price: editedRow.price !== '' ? editedRow.price : 0,
+                            kiotProductCode: rule.code,
+                            updatedAt: nowIso
+                        });
+                        db.ref(`kiotviet_queue_v2/${qKey}`).update({
+                            prescriptionNo: String(editedRow.prescriptionNo || '').trim(),
+                            name: String(editedRow.name || '').trim(),
+                            price: editedRow.price !== '' ? editedRow.price : 0
+                        });
+                    }
+                }
             };
 
             // Đổi hình thức thanh toán (Tiền mặt <-> Chuyển khoản) với 1 chạm
@@ -5998,21 +6420,31 @@
             const handleBillPrinted = (billData) => {
                 if (!billData) return;
                 const nowIso = new Date().toISOString();
+                let printedRow = null;
                 const updated = localPrescriptions.map(p => {
                     const matchById = billData.id && p.id === billData.id;
                     const matchByDetails = !billData.id && String(p.prescriptionNo || '').trim() === String(billData.prescriptionNo || '').trim() && String(p.name || '').trim() === String(billData.name || '').trim();
                     if (matchById || matchByDetails) {
                         const currentCount = parseInt(p.printCount, 10) || 0;
-                        return {
+                        printedRow = {
                             ...p,
                             printedBy: currentOperator,
                             lastPrintedAt: nowIso,
                             printCount: currentCount + 1
                         };
+                        return printedRow;
                     }
                     return p;
                 });
                 commitPrescriptions(updated);
+
+                // Tự động hẹn giờ 15 phút xuất hóa đơn KiotViet khi bấm In Bill tại Thốt Nốt
+                if (isThotNotBranch && kiotAutoAfterPrint && printedRow) {
+                    const curKiot = getRxKiotInfo(printedRow);
+                    if (curKiot.kiotStatus !== 'issued' && curKiot.kiotStatus !== 'processing' && curKiot.kiotStatus !== 'scheduled') {
+                        scheduleKiotVietForRx(printedRow, 15, false);
+                    }
+                }
             };
 
             // Xóa 1 toa
@@ -6020,6 +6452,17 @@
                 const row = localPrescriptions.find(r => r.id === id);
                 const sttText = row && row.prescriptionNo ? `toa #${row.prescriptionNo}` : 'dòng này';
                 if (confirm(`Bạn có chắc muốn xóa ${sttText}?`)) {
+                    // Nếu toa đang chờ xuất KiotViet trong 15 phút thì tự động hủy lệnh hẹn giờ
+                    if (isThotNotBranch && id) {
+                        const qKey = `${dateKey}_${id}`;
+                        db.ref(`kiotviet_queue_v2/${qKey}`).remove();
+                        db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}/${id}`).update({
+                            kiotStatus: 'cancelled',
+                            kiotScheduledAt: 0,
+                            kiotError: 'Đã xóa toa',
+                            updatedAt: new Date().toISOString()
+                        });
+                    }
                     const updated = localPrescriptions.filter(r => r.id !== id);
                     commitPrescriptions(updated);
                     if (editingRowId === id) setEditingRowId(null);
@@ -6199,6 +6642,172 @@
 
                 return list;
             }, [localPrescriptions, paymentFilter, searchTerm, sortMode]);
+
+            // Thống kê trạng thái xuất HĐĐT KiotViet trong ngày (chỉ tính cho Thốt Nốt)
+            const kiotStats = useMemo(() => {
+                if (!isThotNotBranch) return { issuedCount: 0, scheduledCount: 0, processingCount: 0, errorCount: 0, unissuedCount: 0 };
+                let issuedCount = 0;
+                let scheduledCount = 0;
+                let processingCount = 0;
+                let errorCount = 0;
+                let unissuedCount = 0;
+
+                localPrescriptions.forEach(p => {
+                    if (!p) return;
+                    const info = getRxKiotInfo(p);
+                    if (info.kiotStatus === 'issued') issuedCount++;
+                    else if (info.kiotStatus === 'scheduled') scheduledCount++;
+                    else if (info.kiotStatus === 'processing') processingCount++;
+                    else if (info.kiotStatus === 'error') errorCount++;
+                    else unissuedCount++;
+                });
+
+                return { issuedCount, scheduledCount, processingCount, errorCount, unissuedCount };
+            }, [isThotNotBranch, localPrescriptions, kiotStatusMap]);
+
+            // Kiểm tra trạng thái hoạt động của Google Apps Script Worker (trong vòng 4 phút gần nhất)
+            const isKiotWorkerOnline = useMemo(() => {
+                if (!kiotWorkerInfo || !kiotWorkerInfo.lastHeartbeat) return false;
+                return (nowTick - parseFloat(kiotWorkerInfo.lastHeartbeat)) < 4 * 60 * 1000;
+            }, [kiotWorkerInfo, nowTick]);
+
+            // Render cụm nút & trạng thái Hóa đơn điện tử KiotViet cho từng toa khám
+            const renderKiotControl = (row, isMobile = false) => {
+                if (!isThotNotBranch || !row) return null;
+                const kInfo = getRxKiotInfo(row);
+                const rule = getKiotProductRule(row.price);
+
+                if (kInfo.kiotStatus === 'issued') {
+                    return (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-extrabold text-[11px] shadow-2xs"
+                                title={`Đã xuất HĐ KiotViet mã ${kInfo.kiotInvoiceCode} • Hàng hóa: ${kInfo.kiotProductCode || rule.code} ${kInfo.kiotIssuedAt ? '• Lúc: ' + new Date(kInfo.kiotIssuedAt).toLocaleString('vi-VN') : ''}`}
+                            >
+                                <span>✅</span>
+                                <span>#{kInfo.kiotInvoiceCode || 'Đã xuất'}</span>
+                                <span className="text-[10px] font-bold text-emerald-700 bg-white/80 px-1 rounded">
+                                    {kInfo.kiotProductCode || rule.code}
+                                </span>
+                            </span>
+                            {kInfo.kiotIssuedAt && (
+                                <span className="text-[10px] text-gray-400 font-medium">
+                                    {formatAuditTime(kInfo.kiotIssuedAt)}
+                                </span>
+                            )}
+                        </div>
+                    );
+                }
+
+                if (kInfo.kiotStatus === 'processing') {
+                    return (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-100 text-blue-800 border border-blue-300 font-extrabold text-[11px] animate-pulse">
+                                <span>🔄</span>
+                                <span>Đang xuất KiotViet...</span>
+                            </span>
+                            {!readOnly && (
+                                <button
+                                    type="button"
+                                    onClick={() => issueKiotVietNow(row)}
+                                    className="px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 border border-blue-200 rounded-md min-h-[26px] min-w-[26px]"
+                                    title="Gửi lại lệnh xuất ngay"
+                                >
+                                    ⚡ Gửi lại
+                                </button>
+                            )}
+                        </div>
+                    );
+                }
+
+                if (kInfo.kiotStatus === 'scheduled') {
+                    const remainingText = formatKiotCountdown(kInfo.kiotScheduledAt, nowTick);
+                    const isOverdue = nowTick >= (parseFloat(kInfo.kiotScheduledAt) || 0);
+                    return (
+                        <div className="flex flex-wrap items-center gap-1">
+                            <span
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[11px] shadow-2xs"
+                                title={`Sẽ tự động xuất mã ${rule.label} sang KiotViet sau khi hết đếm ngược`}
+                            >
+                                <span>⏳</span>
+                                <span>{isOverdue ? 'Đang tự xuất...' : `Tự xuất: ${remainingText}`}</span>
+                            </span>
+                            {!readOnly && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => issueKiotVietNow(row)}
+                                        className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-extrabold text-[11px] shadow-2xs transition flex items-center gap-0.5 min-h-[30px] min-w-[32px]"
+                                        title={`Xuất ngay mã ${rule.label} sang KiotViet không cần đợi hết 15 phút`}
+                                    >
+                                        <span>⚡</span>
+                                        <span>Xuất ngay</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => cancelKiotVietSchedule(row)}
+                                        className="px-1.5 py-1 rounded-lg bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-700 border border-gray-300 font-bold text-[11px] transition min-h-[30px] min-w-[28px]"
+                                        title="Hủy hẹn giờ tự động xuất HĐ cho toa này"
+                                    >
+                                        ✕
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    );
+                }
+
+                if (kInfo.kiotStatus === 'error') {
+                    return (
+                        <div className="flex flex-wrap items-center gap-1">
+                            <span
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-100 text-red-800 border border-red-300 font-bold text-[11px]"
+                                title={kInfo.kiotError || 'Lỗi kết nối KiotViet'}
+                            >
+                                <span>⚠️</span>
+                                <span>Lỗi HĐ</span>
+                            </span>
+                            {!readOnly && (
+                                <button
+                                    type="button"
+                                    onClick={() => issueKiotVietNow(row)}
+                                    className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-2xs transition min-h-[30px]"
+                                    title={kInfo.kiotError || 'Thử xuất lại'}
+                                >
+                                    🔄 Thử lại
+                                </button>
+                            )}
+                        </div>
+                    );
+                }
+
+                // Mặc định: Chưa xuất
+                if (readOnly) {
+                    return <span className="text-[11px] text-gray-400 italic">Chưa xuất HĐ</span>;
+                }
+
+                return (
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            onClick={() => issueKiotVietNow(row)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-300 font-extrabold text-[11px] shadow-2xs active:scale-95 transition flex items-center gap-1 min-h-[32px]"
+                            title={`Xuất hóa đơn KiotViet ngay (${rule.label} • Tiền mặt • Ghi tên bé)`}
+                        >
+                            <span>🧾</span>
+                            <span>Xuất HĐ</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => scheduleKiotVietForRx(row, 15, false)}
+                            className="px-1.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold text-[11px] active:scale-95 transition min-h-[32px] min-w-[34px]"
+                            title="Hẹn tự động xuất hóa đơn sau 15 phút"
+                        >
+                            ⏱️15p
+                        </button>
+                    </div>
+                );
+            };
 
             return (
                 <div className="bg-white rounded-2xl shadow-md p-3 sm:p-5 border border-gray-100">
@@ -6487,6 +7096,87 @@
                             </div>
                         )}
                     </div>
+
+                    {/* THANH ĐIỀU KHIỂN & GIÁM SÁT HÓA ĐƠN ĐIỆN TỬ KIOTVIET (CHỈ HIỆN Ở CHI NHÁNH THỐT NỐT) */}
+                    {isThotNotBranch && (
+                        <div className="mb-3 p-2.5 sm:p-3 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-white to-emerald-50/60 shadow-2xs space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <span className="font-extrabold text-indigo-900 flex items-center gap-1 text-xs sm:text-sm">
+                                        <span>🧾</span>
+                                        <span>KiotViet HĐĐT (hkdbachbao)</span>
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">
+                                        <span>✅ Đã xuất:</span>
+                                        <strong>{kiotStats.issuedCount}</strong>
+                                    </span>
+                                    {kiotStats.scheduledCount > 0 && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 font-bold animate-pulse">
+                                            <span>⏳ Chờ 15p:</span>
+                                            <strong>{kiotStats.scheduledCount}</strong>
+                                        </span>
+                                    )}
+                                    {kiotStats.processingCount > 0 && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 border border-blue-300 font-bold">
+                                            <span>🔄 Đang gửi:</span>
+                                            <strong>{kiotStats.processingCount}</strong>
+                                        </span>
+                                    )}
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-gray-100 text-gray-700 border border-gray-200 font-semibold">
+                                        <span>📋 Chưa xuất:</span>
+                                        <strong>{kiotStats.unissuedCount}</strong>
+                                    </span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {!readOnly && (
+                                        <button
+                                            type="button"
+                                            onClick={handleToggleKiotAutoAfterPrint}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold border transition flex items-center gap-1 min-h-[32px] ${
+                                                kiotAutoAfterPrint
+                                                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                                                    : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                                            }`}
+                                            title="Khi bật: Mỗi lần bấm In Bill tại Thốt Nốt, hệ thống tự động đếm ngược 15 phút rồi xuất hóa đơn KiotViet"
+                                        >
+                                            <span>⏱️</span>
+                                            <span>In bill 15p tự xuất: {kiotAutoAfterPrint ? 'BẬT' : 'TẮT'}</span>
+                                        </button>
+                                    )}
+
+                                    {!readOnly && kiotStats.scheduledCount > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleIssueAllScheduledNow}
+                                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] shadow-2xs active:scale-95 transition flex items-center gap-1 min-h-[32px]"
+                                            title="Xuất ngay toàn bộ các toa đang đếm ngược chờ 15 phút"
+                                        >
+                                            <span>⚡</span>
+                                            <span>Xuất ngay ({kiotStats.scheduledCount} toa chờ)</span>
+                                        </button>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowKiotSetupModal(true)}
+                                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[11px] transition flex items-center gap-1 min-h-[32px]"
+                                        title="Xem quy tắc mã hàng & cấu hình Google Apps Script tự động"
+                                    >
+                                        <span>{isKiotWorkerOnline ? '🟢' : '⚙️'}</span>
+                                        <span>Cấu hình KiotViet</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {kiotToastMsg && (
+                                <div className="text-xs font-bold text-indigo-900 bg-indigo-100/90 border border-indigo-300 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 animate-fadeIn">
+                                    <span>{kiotToastMsg}</span>
+                                    <button type="button" onClick={() => setKiotToastMsg('')} className="text-indigo-500 hover:text-indigo-800 text-xs font-black min-h-[24px] min-w-[24px]">✕</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Collapsible Price Breakdown */}
                     {showPriceBreakdown && (
@@ -6853,6 +7543,18 @@
                                                 </div>
                                             </div>
 
+                                            {/* Hàng KiotViet HĐĐT (Chỉ hiện ở chi nhánh Thốt Nốt) */}
+                                            {isThotNotBranch && (
+                                                <div className="pt-1.5 border-t border-indigo-100/80 flex items-center justify-between gap-2 bg-indigo-50/40 px-2.5 py-1.5 rounded-xl">
+                                                    <span className="text-[11px] font-bold text-indigo-800 shrink-0">
+                                                        🧾 KiotViet ({getKiotProductRule(row.price).label}):
+                                                    </span>
+                                                    <div className="flex items-center justify-end">
+                                                        {renderKiotControl(row, true)}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             {/* Hàng 3: Nhật ký thao tác (Nhập / Sửa / In) */}
                                             {(row.createdBy || row.updatedBy || row.printedBy) && (
                                                 <div className="mt-1 pt-1.5 border-t border-gray-100 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-gray-600 bg-gray-50/90 px-2.5 py-1 rounded-xl">
@@ -6904,6 +7606,9 @@
                                             <th className="py-2 px-3">Tên bé / Bệnh nhân</th>
                                             <th className="py-2 px-3 w-32 sm:w-36">Tiền khám (k)</th>
                                             <th className="py-2 px-2 w-28 text-center">Hình thức</th>
+                                            {isThotNotBranch && (
+                                                <th className="py-2 px-2 w-48 text-left">🧾 HĐĐT KiotViet</th>
+                                            )}
                                             <th className="py-2 px-3 w-44 sm:w-52 text-left">👤 Nhân viên thao tác</th>
                                             <th className="py-2 px-1 w-16 text-center">Thao tác</th>
                                         </tr>
@@ -7005,6 +7710,13 @@
                                                         </button>
                                                     </td>
 
+                                                    {/* Cột HĐĐT KiotViet (Chỉ hiện ở chi nhánh Thốt Nốt) */}
+                                                    {isThotNotBranch && (
+                                                        <td className="py-1.5 px-2 align-middle">
+                                                            {renderKiotControl(row, false)}
+                                                        </td>
+                                                    )}
+
                                                     {/* Nhân viên thao tác: Nhập, Sửa, In */}
                                                     <td className="py-1.5 px-3 align-middle text-[11px] leading-tight text-gray-600">
                                                         <div className="flex flex-col gap-0.5">
@@ -7100,8 +7812,123 @@
                             bill={billToPrint}
                             currentUser={currentUser}
                             onPrinted={handleBillPrinted}
+                            kiotInfo={getRxKiotInfo(billToPrint)}
+                            kiotAutoAfterPrint={kiotAutoAfterPrint}
+                            onIssueKiotNow={(b) => issueKiotVietNow(b)}
                             onClose={() => setBillToPrint(null)}
                         />
+                    )}
+
+                    {/* Modal Cấu hình & Hướng dẫn Kết nối KiotViet (Thốt Nốt) */}
+                    {showKiotSetupModal && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 overflow-y-auto">
+                            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-xl w-full overflow-hidden border border-gray-100 my-auto max-h-[92vh] flex flex-col">
+                                <div className="bg-gradient-to-r from-indigo-600 to-blue-700 text-white p-4 flex justify-between items-center shrink-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-2xl">🧾</span>
+                                        <div>
+                                            <h3 className="font-extrabold text-base sm:text-lg leading-tight">Cấu hình Xuất HĐĐT KiotViet</h3>
+                                            <p className="text-xs text-indigo-100">Gian hàng: hkdbachbao • Chi nhánh áp dụng: Thốt Nốt</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowKiotSetupModal(false)}
+                                        className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white font-bold"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+
+                                <div className="p-4 overflow-y-auto space-y-3 text-xs sm:text-sm text-gray-700">
+                                    {/* Trạng thái Worker */}
+                                    <div className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
+                                        isKiotWorkerOnline ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-amber-50 border-amber-300 text-amber-900'
+                                    }`}>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-lg">{isKiotWorkerOnline ? '🟢' : '🟠'}</span>
+                                            <div>
+                                                <div className="font-extrabold">
+                                                    {isKiotWorkerOnline ? 'Trạm tự động Google Apps Script đang hoạt động' : 'Trạm tự động đang chờ kích hoạt trên Google Apps Script'}
+                                                </div>
+                                                <div className="text-[11px] opacity-80">
+                                                    {kiotWorkerInfo && kiotWorkerInfo.lastHeartbeat
+                                                        ? `Cập nhật lần cuối: ${new Date(kiotWorkerInfo.lastHeartbeat).toLocaleString('vi-VN')}`
+                                                        : 'Cập nhật file PKBB_Telegram_Report.gs lên Google Apps Script và bấm Chạy setupAllTriggers()'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Quy tắc xuất hóa đơn */}
+                                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 space-y-1.5">
+                                        <div className="font-extrabold text-gray-900 flex items-center gap-1.5">
+                                            <span>📋</span>
+                                            <span>Quy tắc tự động ánh xạ sang KiotViet:</span>
+                                        </div>
+                                        <ul className="space-y-1 text-xs pl-4 list-disc text-gray-700">
+                                            <li>
+                                                <strong>Gian hàng:</strong> <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-indigo-700">hkdbachbao</code> (Chi nhánh trung tâm)
+                                            </li>
+                                            <li>
+                                                <strong>Toa 0 đồng (0k):</strong> Xuất mã <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-gray-800">SP000013</code> (<em>Bs ko tính tiền khám</em>) — Đơn giá: <strong>0đ</strong>
+                                            </li>
+                                            <li>
+                                                <strong>Tất cả các toa giá khác (&gt; 0k):</strong> Xuất mã <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-700">SP000003</code> (<em>Phí khám bệnh và tư vấn 50k</em>) — Giữ nguyên đơn giá mặc định: <strong>50.000đ</strong>
+                                            </li>
+                                            <li>
+                                                <strong>Thanh toán &amp; Khách hàng:</strong> Luôn mặc định <strong>Tiền mặt (Cash)</strong> • Khách hàng <strong>KH000001 (Bán cho người tiêu dùng)</strong> • Ghi kèm <strong>Tên bé</strong> vào ghi chú hóa đơn (không ghi STT toa).
+                                            </li>
+                                            <li>
+                                                <strong>Tự động sau 15 phút:</strong> Khi bấm <strong>In Bill</strong> tại Thốt Nốt, hệ thống tự động đếm ngược <strong>15 phút</strong> rồi tự xuất HĐĐT (trong 15 phút đó nếu sửa tên bé/giá tiền hoặc xóa toa, hệ thống tự động cập nhật hoặc hủy tương ứng).
+                                            </li>
+                                        </ul>
+                                    </div>
+
+                                    {/* Webhook URL tùy chọn */}
+                                    <div className="space-y-1.5">
+                                        <label className="block font-bold text-xs text-gray-700">
+                                            🔗 Google Apps Script Web App URL (Tùy chọn để bấm "Xuất HĐ ngay" phản hồi trong 1 giây):
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={kiotWebhookUrl}
+                                                onChange={(e) => setKiotWebhookUrl(e.target.value)}
+                                                placeholder="https://script.google.com/macros/s/.../exec"
+                                                className="flex-1 text-xs px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    db.ref('settings_v2/kiotvietConfig').update({
+                                                        webhookUrl: String(kiotWebhookUrl || '').trim(),
+                                                        updatedAt: new Date().toISOString()
+                                                    });
+                                                    alert('✅ Đã lưu địa chỉ Web App URL!');
+                                                }}
+                                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shrink-0"
+                                            >
+                                                Lưu URL
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-gray-500">
+                                            💡 Kể cả khi để trống ô này, Trigger chạy ngầm mỗi 1 phút trên Google Apps Script vẫn tự động quét và xuất đầy đủ mọi hóa đơn!
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-gray-50 border-t border-gray-200 flex justify-end shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowKiotSetupModal(false)}
+                                        className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white font-bold text-xs sm:text-sm rounded-xl"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     )}
 
                     {/* Nút nổi Thêm Toa trên điện thoại - Giúp nhân viên đang cuộn ở dưới đáy danh sách vẫn bấm thêm toa được ngay */}

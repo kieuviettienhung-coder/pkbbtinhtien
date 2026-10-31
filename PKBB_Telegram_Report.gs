@@ -117,7 +117,7 @@ function getKiotVietAccessToken(forceRefresh) {
  * - Ghi kèm Tên bé vào phần Ghi chú (description), không ghi STT toa
  */
 function createKiotVietInvoiceForRx(rxData) {
-  const token = getKiotVietAccessToken(false);
+  let token = getKiotVietAccessToken(false);
   const rawPrice = parseFloat(rxData.price || 0);
   const isZeroPrice = isNaN(rawPrice) || rawPrice <= 0;
 
@@ -151,7 +151,7 @@ function createKiotVietInvoiceForRx(rxData) {
     ]
   };
 
-  const res = UrlFetchApp.fetch('https://public.kiotapi.com/invoices', {
+  let res = UrlFetchApp.fetch('https://public.kiotapi.com/invoices', {
     method: 'post',
     contentType: 'application/json',
     headers: {
@@ -162,7 +162,26 @@ function createKiotVietInvoiceForRx(rxData) {
     muteHttpExceptions: true
   });
 
-  const statusCode = res.getResponseCode();
+  let statusCode = res.getResponseCode();
+  // Nếu token hết hạn (401) hoặc KiotViet bận tạm thời (429 / 502 / 503), tự động thử lại 1 lần
+  if (statusCode === 401 || statusCode === 429 || statusCode === 502 || statusCode === 503) {
+    Utilities.sleep(1200);
+    if (statusCode === 401) {
+      token = getKiotVietAccessToken(true);
+    }
+    res = UrlFetchApp.fetch('https://public.kiotapi.com/invoices', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        Retailer: KIOTVIET_CONFIG.retailer
+      },
+      payload: JSON.stringify(invoicePayload),
+      muteHttpExceptions: true
+    });
+    statusCode = res.getResponseCode();
+  }
+
   const respText = res.getContentText();
 
   if (statusCode < 200 || statusCode >= 300) {
@@ -215,9 +234,24 @@ function processKiotVietQueue(targetQueueKey) {
     const queueObj = JSON.parse(qRes.getContentText());
     if (!queueObj || typeof queueObj !== 'object') return { processed: 0 };
 
-    const entries = Object.entries(queueObj);
+    // Sắp xếp hàng đợi theo thời gian hẹn (scheduledAt) và số thứ tự toa từ nhỏ đến lớn
+    const entries = Object.entries(queueObj).sort((a, b) => {
+      const itemA = a[1] || {};
+      const itemB = b[1] || {};
+      const timeA = parseFloat(itemA.scheduledAt || 0);
+      const timeB = parseFloat(itemB.scheduledAt || 0);
+      if (timeA !== timeB) return timeA - timeB;
+      const sttA = parseInt(String(itemA.prescriptionNo || '0').replace(/\D/g, ''), 10) || 0;
+      const sttB = parseInt(String(itemB.prescriptionNo || '0').replace(/\D/g, ''), 10) || 0;
+      return sttA - sttB;
+    });
+
     let processedCount = 0;
     const results = [];
+
+    // Bộ nhớ đệm theo ngày (Batch Read) để không phải đọc lại Firebase nhiều lần khi xử lý 15-30 toa cùng lúc
+    const dailyDataCache = {};
+    const statusMapCache = {};
 
     for (let i = 0; i < entries.length; i++) {
       const [queueKey, item] = entries[i];
@@ -252,10 +286,18 @@ function processKiotVietQueue(targetQueueKey) {
         continue;
       }
 
-      // 1. Kiểm tra trạng thái hiện tại trong kiotviet_ByDate_v2 để chống xuất trùng
+      // 1. Nạp cache trạng thái kiotviet_ByDate_v2 của ngày đó (chỉ đọc 1 lần cho cả đợt 15-30 toa)
+      if (statusMapCache[dateKey] === undefined) {
+        try {
+          const mapRes = UrlFetchApp.fetch(FIREBASE_URL + '/kiotviet_ByDate_v2/thot-not/' + dateKey + '.json', { muteHttpExceptions: true });
+          statusMapCache[dateKey] = (mapRes.getResponseCode() === 200 && mapRes.getContentText()) ? (JSON.parse(mapRes.getContentText()) || {}) : {};
+        } catch (eMap) {
+          statusMapCache[dateKey] = {};
+        }
+      }
+
       const statusUrl = FIREBASE_URL + '/kiotviet_ByDate_v2/thot-not/' + dateKey + '/' + encodeURIComponent(rxId) + '.json';
-      const curStatusRes = UrlFetchApp.fetch(statusUrl, { muteHttpExceptions: true });
-      const curStatusObj = curStatusRes.getResponseCode() === 200 ? JSON.parse(curStatusRes.getContentText()) : null;
+      const curStatusObj = statusMapCache[dateKey][rxId] || null;
 
       if (curStatusObj && curStatusObj.kiotStatus === 'issued' && curStatusObj.kiotInvoiceCode) {
         // Toa này đã được xuất rồi -> Xóa khỏi hàng đợi
@@ -275,18 +317,20 @@ function processKiotVietQueue(targetQueueKey) {
         continue;
       }
 
-      // 2. Lấy dữ liệu toa mới nhất từ daily_v2/thot-not/{dateKey} (phòng trường hợp nhân viên sửa tên bé / giá tiền hoặc xóa toa trong 15 phút chờ)
+      // 2. Nạp cache dữ liệu toa mới nhất từ daily_v2/thot-not/{dateKey} (chỉ đọc 1 lần cho cả đợt)
+      if (dailyDataCache[dateKey] === undefined) {
+        try {
+          const dailyRes = UrlFetchApp.fetch(FIREBASE_URL + '/daily_v2/thot-not/' + dateKey + '.json', { muteHttpExceptions: true });
+          dailyDataCache[dateKey] = (dailyRes.getResponseCode() === 200 && dailyRes.getContentText()) ? JSON.parse(dailyRes.getContentText()) : null;
+        } catch (eDaily) {
+          dailyDataCache[dateKey] = null;
+        }
+      }
+
+      const dailyData = dailyDataCache[dateKey];
       let latestName = item.name !== undefined ? String(item.name).trim() : '';
       let latestPrice = item.price !== undefined ? item.price : 0;
       let latestStt = item.prescriptionNo || '';
-      let dailyData = null;
-
-      try {
-        const dailyRes = UrlFetchApp.fetch(FIREBASE_URL + '/daily_v2/thot-not/' + dateKey + '.json', { muteHttpExceptions: true });
-        if (dailyRes.getResponseCode() === 200) {
-          dailyData = JSON.parse(dailyRes.getContentText());
-        }
-      } catch (eDaily) {}
 
       if (dailyData && dailyData.prescriptions) {
         const rxList = toArray(dailyData.prescriptions).filter(Boolean);
@@ -323,20 +367,11 @@ function processKiotVietQueue(targetQueueKey) {
         }
       }
 
-      // 3. Đánh dấu đang xử lý (processing)
-      UrlFetchApp.fetch(statusUrl, {
-        method: 'patch',
-        contentType: 'application/json',
-        payload: JSON.stringify({
-          rxId: rxId,
-          prescriptionNo: latestStt,
-          name: latestName,
-          price: latestPrice,
-          kiotStatus: 'processing',
-          updatedAt: new Date().toISOString()
-        }),
-        muteHttpExceptions: true
-      });
+      // 3. Nếu xuất nhiều toa liên tiếp trong cùng 1 đợt, nghỉ nhẹ 350ms (0.35 giây) giữa mỗi hóa đơn
+      // để cổng KiotViet & chữ ký số HĐĐT cấp số tuần tự mượt 100%, không bị nghẽn rate-limit
+      if (processedCount > 0) {
+        Utilities.sleep(350);
+      }
 
       // 4. Gọi KiotViet API để tạo hóa đơn
       try {
@@ -366,7 +401,8 @@ function processKiotVietQueue(targetQueueKey) {
           updatedAt: issuedIso
         };
 
-        // Lưu kết quả vào node chuyên biệt kiotviet_ByDate_v2
+        // Lưu kết quả vào node chuyên biệt kiotviet_ByDate_v2 (cập nhật giao diện tức thì)
+        statusMapCache[dateKey][rxId] = successRecord;
         UrlFetchApp.fetch(statusUrl, {
           method: 'put',
           contentType: 'application/json',
@@ -374,31 +410,7 @@ function processKiotVietQueue(targetQueueKey) {
           muteHttpExceptions: true
         });
 
-        // Đồng bộ vào mảng prescriptions của daily_v2 nếu có
-        if (dailyData && Array.isArray(dailyData.prescriptions)) {
-          const updatedPrescriptions = dailyData.prescriptions.map(p => {
-            if (p && p.id === rxId) {
-              return Object.assign({}, p, {
-                kiotStatus: 'issued',
-                kiotInvoiceCode: invResult.code,
-                kiotInvoiceId: invResult.id,
-                kiotProductCode: invResult.productCode,
-                kiotIssuedAt: issuedIso,
-                kiotIssuedBy: issuedBy,
-                kiotError: ''
-              });
-            }
-            return p;
-          });
-          UrlFetchApp.fetch(FIREBASE_URL + '/daily_v2/thot-not/' + dateKey + '/prescriptions.json', {
-            method: 'put',
-            contentType: 'application/json',
-            payload: JSON.stringify(updatedPrescriptions),
-            muteHttpExceptions: true
-          });
-        }
-
-        // Xóa khỏi hàng đợi sau khi xuất thành công
+        // Xóa khỏi hàng đợi ngay sau khi xuất thành công
         UrlFetchApp.fetch(FIREBASE_URL + '/kiotviet_queue_v2/' + encodeURIComponent(queueKey) + '.json', {
           method: 'delete',
           muteHttpExceptions: true

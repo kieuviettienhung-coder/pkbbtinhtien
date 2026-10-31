@@ -220,15 +220,9 @@ function processKiotVietQueue(targetQueueKey) {
   try {
     const now = Date.now();
 
-    // Cập nhật nhịp tim (heartbeat) và tự động đồng bộ Web App URL lên Firebase
+    // Cập nhật nhịp tim (heartbeat) lên Firebase
     try {
       const heartbeatPayload = { lastHeartbeat: now, updatedAt: new Date().toISOString() };
-      try {
-        const serviceUrl = ScriptApp.getService().getUrl();
-        if (serviceUrl && serviceUrl.indexOf('https://script.google.com') === 0) {
-          heartbeatPayload.webhookUrl = serviceUrl;
-        }
-      } catch (eUrl) {}
       UrlFetchApp.fetch(FIREBASE_URL + '/settings_v2/kiotvietWorker.json', {
         method: 'patch',
         contentType: 'application/json',

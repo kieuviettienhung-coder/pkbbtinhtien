@@ -5974,9 +5974,6 @@
                     const val = snap.val();
                     if (val) {
                         setKiotWorkerInfo(val);
-                        if (val.webhookUrl) {
-                            setKiotWebhookUrl(prev => prev || val.webhookUrl);
-                        }
                     }
                 });
                 return () => {
@@ -6017,6 +6014,9 @@
             const triggerGasWebhook = (queueKey = null) => {
                 if (!kiotWebhookUrl) return;
                 try {
+                    const sep = kiotWebhookUrl.includes('?') ? '&' : '?';
+                    const getUrl = `${kiotWebhookUrl}${sep}action=process${queueKey ? '&queueKey=' + encodeURIComponent(queueKey) : ''}&_t=${Date.now()}`;
+                    fetch(getUrl, { method: 'GET', mode: 'no-cors' }).catch(() => {});
                     fetch(kiotWebhookUrl, {
                         method: 'POST',
                         mode: 'no-cors',

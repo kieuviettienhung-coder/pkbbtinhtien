@@ -130,7 +130,10 @@ function createKiotVietInvoiceForRx(rxData) {
     soldById: KIOTVIET_CONFIG.soldById,
     customerId: KIOTVIET_CONFIG.customerId,
     totalPayment: invoiceAmount,
+    method: 'Cash',
     discount: 0,
+    totalTax: 0,
+    isApplyTaxReduction: false,
     description: patientName,
     makeInvoice: true,
     invoiceDetails: [
@@ -140,7 +143,14 @@ function createKiotVietInvoiceForRx(rxData) {
         productName: selectedProduct.name,
         quantity: 1,
         price: invoiceAmount,
-        discount: 0
+        discount: 0,
+        InvoiceDetailTaxs: [
+          {
+            taxId: 66, // 0P2 (0% VAT - 2% TNCN theo đúng cấu hình thuế của hkdbachbao)
+            detailTax: 0,
+            isApplyTaxReduction: false
+          }
+        ]
       }
     ],
     payments: [

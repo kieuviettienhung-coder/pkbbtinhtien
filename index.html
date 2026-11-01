@@ -184,7 +184,7 @@
             }
         };
 
-        const buildDailyReport = (dateStr, branchesData) => {
+        const buildDailyReport = (dateStr, branchesData, kiotMapThotNot = {}) => {
             const d = dateStr.split('-');
             let msg = '📊 <b>BÁO CÁO DOANH THU</b>\n';
             msg += `📅 Ngày: <b>${d[2]}/${d[1]}/${d[0]}</b>\n`;
@@ -204,7 +204,7 @@
             let gNet = 0, gNetCash = 0, gNetTransfer = 0;
             let hasData = false;
 
-            // 1. Tính tổng tiền thuốc bán ở Ngã Bảy để nộp/chuyển về Thốt Nốt
+            // 1. Tính tổng tiền thuốc bán ở Ngã Bảy để nộp/chuyển về Thốt Nốt (trên sổ sách)
             let ngaBayMedicine = 0;
             const nbBranch = branchesData.find(b => (b.key === 'nga-bay') || (b.name && b.name.includes('Ngã Bảy')));
             if (nbBranch && nbBranch.data) {
@@ -225,7 +225,7 @@
                 const isNgaBay = (key === 'nga-bay') || (name && name.includes('Ngã Bảy'));
 
                 let exam = 0, examCash = 0, examTransfer = 0, cases = 0;
-                let transferPrescriptions = [];
+                let unissuedCount = 0;
 
                 const rxList = toArray(data.prescriptions).filter(Boolean);
                 if (rxList.length > 0) {
@@ -236,9 +236,13 @@
                         cases++;
                         if (p.paymentMethod === 'transfer') {
                             examTransfer += price;
-                            if (p.prescriptionNo) transferPrescriptions.push(`Toa ${String(p.prescriptionNo).trim()}`);
                         } else {
                             examCash += price;
+                        }
+                        if (isThotNot) {
+                            const kInfo = (p.id && kiotMapThotNot && kiotMapThotNot[p.id]) ? kiotMapThotNot[p.id] : p;
+                            const isIssued = kInfo && (kInfo.kiotStatus === 'issued' || Boolean(kInfo.kiotInvoiceCode));
+                            if (!isIssued) unissuedCount++;
                         }
                     });
                 } else if (data.examinations) {
@@ -254,19 +258,16 @@
                             ptArr.forEach(pt => {
                                 if (pt && pt.paymentMethod === 'transfer') {
                                     examTransfer += parseFloat(p || 0);
-                                    if (pt.prescriptionNo) transferPrescriptions.push(`Toa ${String(pt.prescriptionNo).trim()}`);
                                 }
                             });
                         });
                     }
                     examCash = exam - examTransfer;
+                    if (isThotNot && cases > 0) {
+                        const issuedInMap = Object.values(kiotMapThotNot || {}).filter(v => v && (v.kiotStatus === 'issued' || Boolean(v.kiotInvoiceCode))).length;
+                        unissuedCount = Math.max(0, cases - issuedInMap);
+                    }
                 }
-
-                transferPrescriptions.sort((a, b) => {
-                    const numA = parseInt(a.replace(/\D/g, '') || '0', 10);
-                    const numB = parseInt(b.replace(/\D/g, '') || '0', 10);
-                    return numA - numB;
-                });
 
                 let doctor = 0, expense = 0, medicine = 0;
                 const docList = toArray(data.doctorFees).filter(Boolean);
@@ -279,20 +280,18 @@
                 medList.forEach(m => medicine += parseFloat(m.quantity || 0) * parseFloat(m.price || 0));
 
                 // Thuốc nội bộ giữa 2 chi nhánh:
-                // - Ngã Bảy: trừ tiền nhập thuốc từ Thốt Nốt (-medicine)
-                // - Thốt Nốt: được hưởng tiền từ bán thuốc cho Ngã Bảy (+transferredFromNB) trên sổ sách tính cuối tháng
+                // - Ngã Bảy chuyển cho Thốt Nốt chỉ tính trên sổ sách cuối tháng, KHÔNG liên quan tiền mặt của Ngã Bảy hay Thốt Nốt ngày hôm đó
                 const transferredFromNB = isThotNot ? ngaBayMedicine : 0;
                 
-                // Còn lại:
-                // Tiền bán thuốc cho Ngã Bảy KHÔNG tính là tiền mặt trong ngày của Thốt Nốt (chỉ là sổ sách cuối tháng)
                 let netCash = 0, netTransfer = examTransfer;
                 let dailyTotalInDay = 0;
                 let grandTotal = 0;
 
                 if (isNgaBay) {
-                    netCash = examCash - doctor - expense - medicine;
+                    // Ngã Bảy: Tiền mặt trong ngày chỉ trừ Lương BS và Chi phí (thuốc là sổ sách cuối tháng)
+                    netCash = examCash - doctor - expense;
                     dailyTotalInDay = netCash + netTransfer;
-                    grandTotal = dailyTotalInDay;
+                    grandTotal = dailyTotalInDay - medicine;
                 } else if (isThotNot) {
                     // Thốt Nốt: Tiền mặt trong ngày chỉ tính thu chi thực tế tại Thốt Nốt (không tính tiền bán thuốc cho NB)
                     netCash = examCash - doctor - expense - medicine;
@@ -306,18 +305,21 @@
 
                 msg += `\n${name}\n`;
                 msg += `💰 Tiền khám: <b>${fmt(exam)}</b> (${cases} ca)\n`;
-
-                // Phần chuyển khoản không ghi tên bệnh nhân, chỉ ghi số toa
-                const ckNote = transferPrescriptions.length > 0 ? ` (${transferPrescriptions.join(', ')})` : '';
-                msg += `   💵 Tiền mặt: ${fmt(examCash)} | 💳 Chuyển khoản: ${fmt(examTransfer)}${ckNote}\n`;
+                msg += `   💵 Tiền mặt: ${fmt(examCash)} | 💳 Chuyển khoản: ${fmt(examTransfer)}\n`;
+                if (isThotNot) {
+                    msg += `🧾 Chưa xuất hóa đơn: <b>${unissuedCount} toa</b>\n`;
+                }
 
                 msg += `👨‍⚕️ Lương BS: ${fmt(doctor)}\n`;
                 msg += `💸 Chi phí: ${fmt(expense)}\n`;
 
-                if (isNgaBay && medicine > 0) {
-                    msg += `💊 Tiền nhập thuốc từ Thốt Nốt: -${fmt(medicine)} (sổ sách cuối tháng)\n`;
+                if (isNgaBay) {
                     msg += `${dailyTotalInDay >= 0 ? '✅' : '🔴'} Còn lại trong ngày: <b>${fmt(dailyTotalInDay)}</b>\n`;
                     msg += `   💵 Tiền mặt: ${fmt(netCash)} | 💳 Chuyển khoản: ${fmt(netTransfer)}\n`;
+                    if (medicine > 0) {
+                        msg += `💊 Tiền nhập thuốc từ Thốt Nốt (sổ sách): -${fmt(medicine)}\n`;
+                        msg += `👉 Tổng trừ thuốc (sổ sách): <b>${fmt(grandTotal)}</b>\n`;
+                    }
                 } else if (isThotNot) {
                     if (medicine > 0) {
                         msg += `💊 Tiền thuốc tại quầy Thốt Nốt: ${fmt(medicine)}\n`;
@@ -1246,7 +1248,9 @@
                         }
                         branchesData.push({ key: b.key, name: b.name, data: bData });
                     }
-                    const msg = buildDailyReport(selectedDate, branchesData);
+                    const kiotSnap = await db.ref(`kiotviet_ByDate_v2/thot-not/${dateKey}`).once('value');
+                    const kiotMapThotNot = kiotSnap.val() || {};
+                    const msg = buildDailyReport(selectedDate, branchesData, kiotMapThotNot);
                     const ok = await sendTelegram(msg);
                     if (ok) {
                         alert('✅ Đã gửi báo cáo qua Telegram!');
@@ -1303,7 +1307,9 @@
 
                 const transferredMedicine = selectedBranch === 'thot-not' ? (ngaBayDailyMedicineTotal || 0) : 0;
                 const branchOwnNet = examTotal - expenseTotal - doctorTotal - medicineTotal;
-                const netCash = examCashTotal - expenseTotal - doctorTotal - medicineTotal;
+                const netCash = selectedBranch === 'nga-bay'
+                    ? (examCashTotal - expenseTotal - doctorTotal)
+                    : (examCashTotal - expenseTotal - doctorTotal - medicineTotal);
                 const netTransfer = examTransferTotal;
 
                 return {

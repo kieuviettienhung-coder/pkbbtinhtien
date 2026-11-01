@@ -6,7 +6,7 @@
 // 2. Xóa hết code cũ, dán (paste) toàn bộ nội dung file này vào → Bấm Lưu (Ctrl+S)
 // 3. Trên thanh công cụ phía trên, chọn hàm: setupAllTriggers → Bấm nút Run (Chạy)
 //    (Hệ thống sẽ tự động cài đặt:
-//      - Báo cáo Telegram lúc 20:00 mỗi tối
+//      - Báo cáo Telegram lúc 21:00 mỗi tối
 //      - Tự động quét & xuất Hóa đơn KiotViet mỗi 15 phút cho chi nhánh Thốt Nốt)
 // 4. (Tùy chọn để bấm Xuất Ngay 1 giây): Bấm nút "Triển khai" (Deploy) ở góc phải trên
 //    → Chọn "Triển khai mới" (New deployment) → Loại: "Ứng dụng web" (Web app)
@@ -510,11 +510,16 @@ function doGet(e) {
 }
 
 // =========================================================================
-// PHẦN 2: BÁO CÁO DOANH THU TỰ ĐỘNG QUA TELEGRAM (20:00 MỖI TỐI)
+// PHẦN 2: BÁO CÁO DOANH THU TỰ ĐỘNG QUA TELEGRAM (21:00 MỖI TỐI)
 // =========================================================================
 
 function sendDailyReport() {
   try {
+    // Quét hàng đợi KiotViet trước khi xuất báo cáo để số liệu hóa đơn mới nhất
+    try {
+      processKiotVietQueue();
+    } catch (eQueue) {}
+
     const today = new Date();
     const dateKey = Utilities.formatDate(today, 'Asia/Ho_Chi_Minh', 'yyyyMMdd');
     const dateDisplay = Utilities.formatDate(today, 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy');
@@ -536,6 +541,17 @@ function sendDailyReport() {
         console.error('Fetch error ' + b.key + ':', err);
       }
       branchesData.push({ key: b.key, name: b.name, data: bData });
+    }
+
+    // 1b. Tải trạng thái xuất hóa đơn KiotViet của Thốt Nốt trong ngày
+    let kiotMapThotNot = {};
+    try {
+      const kRes = UrlFetchApp.fetch(FIREBASE_URL + '/kiotviet_ByDate_v2/thot-not/' + dateKey + '.json', { muteHttpExceptions: true });
+      if (kRes.getResponseCode() === 200 && kRes.getContentText()) {
+        kiotMapThotNot = JSON.parse(kRes.getContentText()) || {};
+      }
+    } catch (eKiot) {
+      kiotMapThotNot = {};
     }
 
     // 2. Tính tổng tiền nhập thuốc của Ngã Bảy từ Thốt Nốt (sổ sách cuối tháng)
@@ -565,7 +581,7 @@ function sendDailyReport() {
       const isNgaBay = (key === 'nga-bay');
 
       let exam = 0, examCash = 0, examTransfer = 0, cases = 0;
-      const transferPrescriptions = [];
+      let unissuedCount = 0;
 
       const rxList = toArray(data.prescriptions).filter(Boolean);
       if (rxList.length > 0) {
@@ -575,11 +591,13 @@ function sendDailyReport() {
           cases++;
           if (p.paymentMethod === 'transfer') {
             examTransfer += price;
-            if (p.prescriptionNo) {
-              transferPrescriptions.push('Toa ' + String(p.prescriptionNo).trim());
-            }
           } else {
             examCash += price;
+          }
+          if (isThotNot) {
+            const kInfo = (p.id && kiotMapThotNot && kiotMapThotNot[p.id]) ? kiotMapThotNot[p.id] : p;
+            const isIssued = kInfo && (kInfo.kiotStatus === 'issued' || Boolean(kInfo.kiotInvoiceCode));
+            if (!isIssued) unissuedCount++;
           }
         });
       } else if (data.examinations) {
@@ -595,22 +613,16 @@ function sendDailyReport() {
             ptList.forEach(pt => {
               if (pt && pt.paymentMethod === 'transfer') {
                 examTransfer += parseFloat(p || 0);
-                if (pt.prescriptionNo) {
-                  transferPrescriptions.push('Toa ' + String(pt.prescriptionNo).trim());
-                }
               }
             });
           });
         }
         examCash = exam - examTransfer;
+        if (isThotNot && cases > 0) {
+          const issuedInMap = Object.values(kiotMapThotNot || {}).filter(v => v && (v.kiotStatus === 'issued' || Boolean(v.kiotInvoiceCode))).length;
+          unissuedCount = Math.max(0, cases - issuedInMap);
+        }
       }
-
-      // Sắp xếp số toa chuyển khoản tăng dần
-      transferPrescriptions.sort((a, b) => {
-        const numA = parseInt(a.replace(/\D/g, '') || '0', 10);
-        const numB = parseInt(b.replace(/\D/g, '') || '0', 10);
-        return numA - numB;
-      });
 
       let doctor = 0, expense = 0, medicine = 0;
       const docList = toArray(data.doctorFees).filter(Boolean);
@@ -625,14 +637,15 @@ function sendDailyReport() {
       const transferredFromNB = isThotNot ? ngaBayMedicine : 0;
 
       // Tiền mặt và Chuyển khoản:
+      // Thuốc của Ngã Bảy chuyển cho Thốt Nốt chỉ tính trên sổ sách, không liên quan tiền mặt trong ngày của Ngã Bảy hay Thốt Nốt
       let netCash = 0, netTransfer = examTransfer;
       let dailyTotalInDay = 0;
       let grandTotal = 0;
 
       if (isNgaBay) {
-        netCash = examCash - doctor - expense - medicine;
+        netCash = examCash - doctor - expense;
         dailyTotalInDay = netCash + netTransfer;
-        grandTotal = dailyTotalInDay;
+        grandTotal = dailyTotalInDay - medicine;
       } else if (isThotNot) {
         netCash = examCash - doctor - expense - medicine;
         dailyTotalInDay = netCash + netTransfer;
@@ -645,17 +658,21 @@ function sendDailyReport() {
 
       msg += '\n' + name + '\n';
       msg += '💰 Tiền khám: <b>' + fmt(exam) + '</b> (' + cases + ' ca)\n';
-
-      const ckNote = transferPrescriptions.length > 0 ? ' (' + transferPrescriptions.join(', ') + ')' : '';
-      msg += '   💵 Tiền mặt: ' + fmt(examCash) + ' | 💳 Chuyển khoản: ' + fmt(examTransfer) + ckNote + '\n';
+      msg += '   💵 Tiền mặt: ' + fmt(examCash) + ' | 💳 Chuyển khoản: ' + fmt(examTransfer) + '\n';
+      if (isThotNot) {
+        msg += '🧾 Chưa xuất hóa đơn: <b>' + unissuedCount + ' toa</b>\n';
+      }
 
       msg += '👨‍⚕️ Lương BS: ' + fmt(doctor) + '\n';
       msg += '💸 Chi phí: ' + fmt(expense) + '\n';
 
-      if (isNgaBay && medicine > 0) {
-        msg += '💊 Tiền nhập thuốc từ Thốt Nốt: -' + fmt(medicine) + ' (sổ sách cuối tháng)\n';
+      if (isNgaBay) {
         msg += (dailyTotalInDay >= 0 ? '✅' : '🔴') + ' Còn lại trong ngày: <b>' + fmt(dailyTotalInDay) + '</b>\n';
         msg += '   💵 Tiền mặt: ' + fmt(netCash) + ' | 💳 Chuyển khoản: ' + fmt(netTransfer) + '\n';
+        if (medicine > 0) {
+          msg += '💊 Tiền nhập thuốc từ Thốt Nốt (sổ sách): -' + fmt(medicine) + '\n';
+          msg += '👉 Tổng trừ thuốc (sổ sách): <b>' + fmt(grandTotal) + '</b>\n';
+        }
       } else if (isThotNot) {
         if (medicine > 0) {
           msg += '💊 Tiền thuốc tại quầy Thốt Nốt: ' + fmt(medicine) + '\n';
@@ -735,7 +752,7 @@ function sendTG(text) {
 /**
  * CHẠY HÀM NÀY 1 LẦN DUY NHẤT ĐỂ BẬT ĐỒNG THỜI:
  * 1. Tự động quét & xuất Hóa đơn KiotViet mỗi 15 phút (sau 15p in bill hoặc khi bấm Xuất ngay)
- * 2. Báo cáo doanh thu Telegram tự động lúc 20:00 mỗi tối
+ * 2. Báo cáo doanh thu Telegram tự động lúc 21:00 mỗi tối
  */
 function setupAllTriggers() {
   // Xóa các trigger cũ để tránh trùng lặp
@@ -746,10 +763,10 @@ function setupAllTriggers() {
     }
   });
 
-  // 1. Trigger báo cáo Telegram 20:00 mỗi ngày
+  // 1. Trigger báo cáo Telegram 21:00 mỗi ngày
   ScriptApp.newTrigger('sendDailyReport')
     .timeBased()
-    .atHour(20)
+    .atHour(21)
     .everyDays(1)
     .inTimezone('Asia/Ho_Chi_Minh')
     .create();
@@ -767,7 +784,7 @@ function setupAllTriggers() {
   sendTG(
     '✅ <b>Đã kích hoạt Hệ thống Tự động PKBB!</b>\n' +
     '🧾 <b>KiotViet HĐĐT (hkdbachbao - Thốt Nốt):</b> Tự động quét & xuất hóa đơn mỗi 15 phút (Token OK: ' + (token ? '✔️' : '❌') + ')\n' +
-    '📊 <b>Báo cáo doanh thu Telegram:</b> Tự động gửi lúc 20:00 mỗi tối'
+    '📊 <b>Báo cáo doanh thu Telegram:</b> Tự động gửi lúc 21:00 mỗi tối'
   );
 }
 

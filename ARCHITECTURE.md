@@ -223,13 +223,14 @@ Tài liệu này ghi chú lại toàn bộ cấu trúc mã nguồn, cơ sở d�
   - **Tách bạch 100% Tiền mặt & Chuyển khoản:** Tất cả các chỉ số (Tiền khám, Còn lại trong ngày của từng chi nhánh, Tổng khám 2 chi nhánh, Tổng còn lại 2 chi nhánh) đều được bóc tách rõ ràng theo `💵 Tiền mặt` và `💳 Chuyển khoản`.
   - **Đồng bộ hóa 2 kênh gửi báo cáo:**
     1. **Nút `📨 Gửi TG` trên Web App:** Dành cho Admin gửi tức thì bất cứ lúc nào trong ngày qua hàm `buildDailyReport`.
-    2. **Tự động 20:00 mỗi tối qua Google Apps Script (`PKBB_Telegram_Report.gs`):** Chạy tự động theo trigger thời gian độc lập trên Google Cloud, lấy dữ liệu trực tiếp từ Firebase RTDB và gửi vào nhóm Telegram của phòng khám mà không phụ thuộc vào việc có ai mở trình duyệt hay không.
-  - **Chuẩn hóa luồng tiền thuốc giữa 2 chi nhánh:**
-    - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc cấp cho Ngã Bảy mang từ Thốt Nốt sang.
-    - Tại Ngã Bảy: Trừ tiền nhập thuốc từ Thốt Nốt (`💊 Tiền nhập thuốc từ Thốt Nốt: -Xk (sổ sách cuối tháng)`), trích ra từ tiền khám để trả Thốt Nốt.
-    - Tại Thốt Nốt: Tiền bán thuốc cho Ngã Bảy (`📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +Xk`) không tính là tiền mặt trong ngày mà là sổ sách để tính toán cuối tháng. Tiền mặt trong ngày của Thốt Nốt phản ánh đúng tiền thực thu chi trong két (`✅ Còn lại trong ngày`).
+    2. **Tự động 21:00 mỗi tối qua Google Apps Script (`PKBB_Telegram_Report.gs`):** Chạy tự động theo trigger thời gian độc lập trên Google Cloud, lấy dữ liệu trực tiếp từ Firebase RTDB và gửi vào nhóm Telegram của phòng khám mà không phụ thuộc vào việc có ai mở trình duyệt hay không.
+  - **Chuẩn hóa luồng tiền thuốc giữa 2 chi nhánh (Sổ sách độc lập với tiền mặt trong ngày):**
+    - Kho thuốc trung tâm đặt tại Thốt Nốt, thuốc cấp cho Ngã Bảy mang từ Thốt Nốt sang trên sổ sách cuối tháng.
+    - Tại Ngã Bảy: Tiền mặt trong ngày (`netCash`) chỉ tính thu chi thực tế tại Ngã Bảy (`examCash - doctor - expense`), không trừ tiền thuốc vào tiền mặt ngày hôm đó. Phần thuốc hiển thị riêng bên dưới (`💊 Tiền nhập thuốc từ Thốt Nốt (sổ sách): -Xk` và `👉 Tổng trừ thuốc (sổ sách)`).
+    - Tại Thốt Nốt: Tiền bán thuốc cho Ngã Bảy (`📦 Tiền bán thuốc cho Ngã Bảy (sổ sách): +Xk`) cũng tính riêng trên sổ sách cuối tháng, không cộng vào tiền mặt trong ngày của Thốt Nốt.
+    - Tại Thốt Nốt hiển thị thêm dòng thống kê `🧾 Chưa xuất hóa đơn: X toa` đối chiếu trực tiếp với node `kiotviet_ByDate_v2/thot-not/{dateKey}`.
   - **Tối ưu hóa nội dung báo cáo tinh gọn & chuyên nghiệp:**
-    - **Không liệt kê tên bệnh nhân:** Báo cáo doanh thu chỉ tập trung vào tổng quan tài chính (tổng tiền khám, số ca, số tiền mặt, số tiền chuyển khoản kèm số toa CK để đối soát); không hiển thị danh sách tên bệnh nhân.
+    - **Không liệt kê tên bệnh nhân và không liệt kê STT toa chuyển khoản:** Chỉ hiển thị tổng tiền mặt và tổng tiền chuyển khoản gọn gàng.
     - **Phần thuốc không ghi từng loại:** Lược bỏ toàn bộ danh sách liệt kê chi tiết từng loại thuốc, giữ cho tin nhắn ngắn gọn, trực quan và dễ đọc.
   - **Tổng hợp 2 chi nhánh chuẩn xác & Cân bằng tài chính:**
     - Tiền thuốc giữa 2 chi nhánh bù trừ nội bộ lẫn nhau (`💊 Tiền thuốc: Huề (NB trả TN Xk trên sổ sách)`), không bị cộng trùng vào tổng doanh thu.
